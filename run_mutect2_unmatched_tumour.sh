@@ -9,7 +9,7 @@ GENOTYPING_CANDIDATES=${5}
 INTERVALS=${6}
 OUTPUT_PATH=${7}
 
-if [[ -z "${REFERENCE}" || -z "${TUMOUR_BAM}" || -z "${GERMLINE_RESOURCE}" || -z "${PANEL_OF_NORMALS}" || -z "${GENOTYPING_CANDIDATES}" ]]; then
+if [[ -z "${TUMOUR_BAM}" || -z "${REFERENCE}" || -z "${GERMLINE_RESOURCE}" || -z "${PANEL_OF_NORMALS}" || -z "${GENOTYPING_CANDIDATES}" ]]; then
   echo "Usage: $0 <tumour:BAM file> <reference:Fasta file> <germline_resource:VCF file> <panel_of_normals:VCF file> <somatic_candidates:VCF file> [intervals file]"
   exit 1
 fi

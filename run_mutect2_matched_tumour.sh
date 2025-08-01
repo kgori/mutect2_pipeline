@@ -6,11 +6,11 @@ NORMAL_BAM=${2}
 REFERENCE=${3}
 GERMLINE_RESOURCE=${4}
 PANEL_OF_NORMALS=${5}
-SOMATIC_CANDIDATES=${6}
+GENOTYPING_CANDIDATES=${6}
 INTERVALS=${7}
 OUTPUT_PATH=${8:-$PROJ_DIR}
 
-if [[ -z "${TUMOUR_BAM}" || -z "${NORMAL_BAM}" || -z "${REFERENCE}" || -z "${GERMLINE_RESOURCE}" || -z "${PANEL_OF_NORMALS}" || -z "${SOMATIC_CANDIDATES}" ]]; then
+if [[ -z "${TUMOUR_BAM}" || -z "${NORMAL_BAM}" || -z "${REFERENCE}" || -z "${GERMLINE_RESOURCE}" || -z "${PANEL_OF_NORMALS}" || -z "${GENOTYPING_CANDIDATES}" ]]; then
   echo "Usage: $0 <tumour:BAM file> <normal:BAM file> <reference:Fasta file> <germline_resource:VCF file> <panel_of_normals:VCF file> <somatic_candidates:VCF file> [intervals file]"
   exit 1
 fi
@@ -40,8 +40,8 @@ if [ ! -f "${PANEL_OF_NORMALS}" ]; then
   exit 1
 fi
 
-if [ ! -f "${SOMATIC_CANDIDATES}" ]; then
-  echo "Error: Somatic candidates file not found: ${SOMATIC_CANDIDATES}"
+if [ ! -f "${GENOTYPING_CANDIDATES}" ]; then
+  echo "Error: Somatic candidates file not found: ${GENOTYPING_CANDIDATES}"
   exit 1
 fi
 
@@ -58,7 +58,7 @@ REFERENCE=$(realpath "${REFERENCE}")
 NORMAL_BAM=$(realpath "${NORMAL_BAM}")
 GERMLINE_RESOURCE=$(realpath "${GERMLINE_RESOURCE}")
 PANEL_OF_NORMALS=$(realpath "${PANEL_OF_NORMALS}")
-SOMATIC_CANDIDATES=$(realpath "${SOMATIC_CANDIDATES}")
+GENOTYPING_CANDIDATES=$(realpath "${GENOTYPING_CANDIDATES}")
 
 if [ ! -z "${INTERVALS}" ]; then
   IVLS_FILE=$(realpath "${INTERVALS}")
@@ -86,7 +86,9 @@ NORMAL_NAME=$(samtools view -H ${NORMAL_BAM} | grep '^@RG' | sed -n 's/.*SM:\([^
 singularity exec \
   -B '/nfs:/nfs' \
   -B '/lustre:/lustre' \
-  -Ce ${PROJ_DIR}/container/gatk_latest.sif \
+  --no-home \
+  --env JAVA_OPTIONS='-Xmx16g' \
+  -e ${PROJ_DIR}/container/gatk_latest.sif \
   gatk Mutect2 \
       --reference ${REFERENCE} \
       --input ${TUMOUR_BAM} \
@@ -94,9 +96,7 @@ singularity exec \
       --normal-sample ${NORMAL_NAME} \
       --germline-resource ${GERMLINE_RESOURCE} \
       --panel-of-normals ${PANEL_OF_NORMALS} \
-      --genotype-germline-sites \
-      --genotype-pon-sites \
-      --alleles ${SOMATIC_CANDIDATES} \
+      --alleles ${GENOTYPING_CANDIDATES} \
       --f1r2-tar-gz ${OUTPUT_PATH}/${BAM_NAME}.mutect2.f1r2.tar.gz \
       --output ${OUTPUT_PATH}/${BAM_NAME}.mutect2.unfiltered.vcf.gz \
       $INTERVALS \
