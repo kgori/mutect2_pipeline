@@ -75,13 +75,15 @@ process runMutectOnNormal {
     input:
     tuple path(reference), val(sample), path(normal_bam), path(interval)
 
-    // output:
-    // path("${normal_bam.getName()}.vcf.gz")
+    output:
+    path("${sample}.*.normal.mutect2_panel_calls.vcf.gz")
+    path("${sample}.*.normal.mutect2_panel_calls.vcf.gz.tbi")
+    path("${sample}.*.normal.mutect2_panel_calls.vcf.gz.stats")
 
     script:
+    intervalNumberMatch = interval.getName() =~ /^(\d+)/
+    intervalNumber = intervalNumberMatch ? intervalNumberMatch[0][1] : 99999
     """
-    echo "${reference[0]} ${reference[1]} ${reference[2]}" > refs.txt
-    echo "${sample} ${normal_bam[0]} ${normal_bam[1]} ${interval}" > inputs.txt
     gatk Mutect2 \
       --reference ${reference[0]} \
       --input ${normal_bam[0]} \
@@ -89,7 +91,84 @@ process runMutectOnNormal {
       --interval-padding 150 \
       --native-pair-hmm-threads ${task.cpus} \
       --max-mnp-distance 0 \
-      --output ${sample}.normal_panel_calls.vcf.gz
+      --output ${sample}.${intervalNumber}.normal.mutect2_panel_calls.vcf.gz
+    """
+}
+
+process runMutectOnTumour {
+    cpus 4
+    memory '8 GB'
+    time '12h'
+    queue 'normal'
+    executor 'lsf'
+    
+    input:
+    tuple path(reference), val(sample), path(tumour_bam), path(interval)
+
+    output:
+    path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz")
+    path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz.tbi")
+    path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz.stats")
+
+    script:
+    intervalNumberMatch = interval.getName() =~ /^(\d+)/
+    intervalNumber = intervalNumberMatch ? intervalNumberMatch[0][1] : 99999
+    """
+    gatk Mutect2 \
+      --reference ${reference[0]} \
+      --input ${tumour_bam[0]} \
+      --intervals ${interval} \
+      --interval-padding 150 \
+      --native-pair-hmm-threads ${task.cpus} \
+      --max-mnp-distance 0 \
+      --output ${sample}.${intervalNumber}.tumour.mutect2_candidate_discovery_calls.vcf.gz
+    """
+}
+
+process runHaplotypeCallerOnNormal {
+    cpus 4
+    memory '8 GB'
+    time '12h'
+    queue 'normal'
+    executor 'lsf'
+    
+    input:
+    tuple val(interval_id), path(reference), val(sample), path(normal_bam), path(interval)
+
+    output:
+    tuple val(interval_id),
+        path("${sample}.${interval_id}.haplotypecaller.g.vcf.gz"),
+        path("${sample}.${interval_id}.haplotypecaller.g.vcf.gz.tbi")
+
+    script:
+    """
+    gatk HaplotypeCaller \
+      --reference ${reference[0]} \
+      --input ${normal_bam[0]} \
+      --intervals ${interval} \
+      --interval-padding 150 \
+      --native-pair-hmm-threads ${task.cpus} \
+      --emit-ref-confidence GVCF \
+        --output ${sample}.${interval_id}.haplotypecaller.g.vcf.gz
+    """
+}
+
+process genomicsDBImport {
+    input:
+    tuple val(interval_id), path(gvcfs), path(gvcf_index), path(interval)
+
+    output:
+    path("genomicsDB")
+
+    script:
+    """
+    gatk GenomicsDBImport \
+      --genomicsdb-workspace-path genomicsDB \
+      --batch-size 50 \
+      --genomicsdb-shared-posixfs-optimizations true \
+      --bypass-feature-reader true \
+      --intervals ${interval} \
+      -V ${gvcfs.join(' -V ')}
     """
 }
 
@@ -103,6 +182,10 @@ workflow {
 
     // Chop into intervals for scattering-gathering
     ivls = splitIntervals(ref_files, params.numIntervals).flatten()
+        .map { interval ->
+            def intervalNumberMatch = interval.getName() =~ /^(\d+)/
+                def intervalNumber = intervalNumberMatch ? intervalNumberMatch[0][1] : 99999
+            return tuple(intervalNumber, interval) }
 
     // Load normal bams
     bam_bai_inputs   = Channel.fromFilePairs("${params.normals}/*.bam{,.bai}")
@@ -124,8 +207,22 @@ workflow {
     tumour_interval_ch = tumours.combine(ivls)
 
     // Run Mutect2 on normals
-    normals_for_pon_calling_ch = ref_files.combine(normal_interval_ch)
-        .map { fa, fai, dict, sample, normal_bam, interval ->
-            tuple([fa, fai, dict], sample, normal_bam, interval) }
-    runMutectOnNormal(normals_for_pon_calling_ch)
+    normals_for_calling_ch = ref_files.combine(normal_interval_ch)
+        .map { fa, fai, dict, sample, normal_bam, interval_label, interval ->
+            tuple(interval_label, [fa, fai, dict], sample, normal_bam, interval) }
+    // runMutectOnNormal(normals_for_calling_ch)
+
+    // Run Mutect2 on tumours
+    tumours_for_candidate_discovery_ch = ref_files.combine(tumour_interval_ch)
+        .map { fa, fai, dict, sample, tumour_bam, interval_label, interval ->
+            tuple(interval_label, [fa, fai, dict], sample, tumour_bam, interval) }
+    // runMutectOnTumour(tumours_for_candidate_discovery_ch) 
+
+    // Run HaplotypeCaller on normals
+    gvcfs_ch = runHaplotypeCallerOnNormal(normals_for_calling_ch)
+    dbImport_ch = gvcfs_ch.groupTuple().combine(ivls, by: 0)
+    // intervals_ch = ivls
+
+    // Collect the gvcfs into a genomeDB
+    db = genomicsDBImport(dbImport_ch)
 }
