@@ -138,7 +138,7 @@ process runMutectOnTumour {
         path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz.tbi"),
         path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz.stats")
 
-    publishDir "results/initial_tumour_calls", mode: 'copy'
+    publishDir "results/InitialTumourCalls", mode: 'copy'
     
     script:
     intervalNumberMatch = interval.getName() =~ /^(\d+)/
@@ -257,6 +257,115 @@ process createPanelOfNormals {
         --output ${interval_id}.panel_of_normals.vcf.gz
     """
 }
+
+process extractSomaticCandidates {
+    input:
+    tuple val(interval_id), path(reference), path(interval), path(genomeDB)
+
+    output:
+    tuple val(interval_id), path(reference), path("${interval_id}.somatic_candidates_raw.vcf.gz"),
+        path("${interval_id}.somatic_candidates_raw.vcf.gz.tbi")
+
+    script:
+    """
+    gatk SelectVariants \
+        --reference ${reference[0]} \
+        --variant gendb://${genomeDB} \
+        --intervals ${interval} \
+        --output ${interval_id}.somatic_candidates_raw.vcf.gz
+    """
+}
+
+process normalizeSomaticCandidates {
+    input:
+    tuple val(interval_id), path(reference), path(vcf), path(index)
+
+    output:
+    tuple path("${interval_id}.somatic_candidates.vcf.gz"),
+        path("${interval_id}.somatic_candidates.vcf.gz.tbi")
+
+    script:
+    """
+    bcftools view -e 'ALT="*"' ${vcf} \
+        | bcftools norm -m -both -f ${reference[0]} \
+        -Oz -o ${interval_id}.somatic_candidates.vcf.gz
+    bcftools index -t ${interval_id}.somatic_candidates.vcf.gz
+    """
+}
+
+process mergeSomaticCandidates {
+    executor 'local'
+    input:
+    path(candidate_vcfs)
+    path(vcf_indices)
+
+    output:
+    path("somatic_candidates.vcf.gz*")
+
+    publishDir "results/SomaticCandidates/GATK", mode: 'copy'
+
+    script:
+    """
+    bcftools concat -a -D ${candidate_vcfs.join(' ')} \
+        | bcftools sort -Oz -o somatic_candidates.vcf.gz
+    bcftools index somatic_candidates.vcf.gz
+    """
+}
+
+process bcftoolsNormalizeSomaticCandidates {
+    input:
+    tuple val(interval_id), path(reference), path(vcf), path(index), path(stats)
+
+    output:
+    tuple val(interval_id),
+        path("${vcf.getBaseName(2)}.norm.vcf.gz"),
+        path("${vcf.getBaseName(2)}.norm.vcf.gz.tbi"),
+        path(stats)
+
+    script:
+    """
+    bcftools norm -m -both -f ${reference[0]} ${vcf} \
+        | bcftools sort \
+            -Oz -o ${vcf.getBaseName(2)}.norm.vcf.gz
+    bcftools index -t ${vcf.getBaseName(2)}.norm.vcf.gz
+    """
+}
+
+process bcftoolsMergeSomaticCandidatesByInterval {
+    input:
+    tuple val(interval_id), path(vcfs), path(index), path(stats)
+
+    output:
+    tuple path("${interval_id}.somatic_candidates.vcf.gz"),
+        path("${interval_id}.somatic_candidates.vcf.gz.tbi")
+
+    script:
+    """
+    bcftools merge ${vcfs.sort { it.getName() }.join(' ')} \
+        | bcftools sort -Oz -o ${interval_id}.somatic_candidates.vcf.gz
+    bcftools index -t ${interval_id}.somatic_candidates.vcf.gz
+    """
+}
+
+process bcftoolsConcatSomaticCandidates {
+    input:
+    path(vcfs)
+    path(indexes)
+
+    output:
+    path("bcftoolsSomaticCandidates.vcf.gz*")
+
+    publishDir "results/SomaticCandidates/BcfTools", mode: 'copy'
+
+    script:
+    """
+    bcftools concat -a -D ${vcfs.sort { it.getName() }.join(' ')} \
+        | bcftools sort -Oz \
+        -o bcftoolsSomaticCandidates.vcf.gz
+    bcftools index bcftoolsSomaticCandidates.vcf.gz
+    """
+}
+    
 
 process genotypeGVCFs {
     input:
@@ -381,9 +490,29 @@ workflow {
             tuple(interval_label, [fa, fai, dict], sample, tumour_bam, interval) }
     tumours_first_called_by_mutect_ch = runMutectOnTumour(tumours_for_candidate_discovery_ch) 
 
-    // Create genomicsDB
+    // Create genomicsDB from the first-round tumour mutect2 calls
     somatic_import_ch = tumours_first_called_by_mutect_ch.groupTuple().combine(ivls, by: 0)
     somatic_db = genomicsDBImport_Somatic(somatic_import_ch)
+
+    // Use bcftools to merge somatic candidates
+    to_normalize_ch = ref_files.combine(tumours_first_called_by_mutect_ch).map {
+        fa, fai, dict, interval_label, vcf, tbi, stats ->
+        tuple(interval_label, [fa, fai, dict], vcf, tbi, stats)
+    }
+    somatic_norm_vcfs = bcftoolsNormalizeSomaticCandidates(to_normalize_ch)
+    somatic_merged_vcfs = bcftoolsMergeSomaticCandidatesByInterval(somatic_norm_vcfs.groupTuple())
+    vcfs = somatic_merged_vcfs.map { it -> it[0] }.collect()
+    indices = somatic_merged_vcfs.map { it -> it[1] }.collect()
+    bcftoolsConcatSomaticCandidates(vcfs, indices)
+
+    // Extract somatic candidates from DB
+    somatic_ch = ref_files.combine(ivls.combine(somatic_db, by: 0))
+        .map { fa, fai, dict, interval_label, interval, genomeDB ->
+            tuple(interval_label, [fa, fai, dict], interval, genomeDB) }
+    somatic_candidates_by_interval = normalizeSomaticCandidates(extractSomaticCandidates(somatic_ch))
+    candidate_vcfs = somatic_candidates_by_interval.map { it -> it[0] }.collect()
+    candidate_indices = somatic_candidates_by_interval.map { it -> it[1] }.collect()
+    mergeSomaticCandidates(candidate_vcfs, candidate_indices)                          
 
     // Run HaplotypeCaller on normals
     gvcfs_ch = runHaplotypeCallerOnNormal(normals_for_calling_ch)
