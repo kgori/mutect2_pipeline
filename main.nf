@@ -16,410 +16,86 @@ def remove_duplicate_filepair_keys(primary_ch, secondary_ch) {
         map { it -> tuple(it[0], it[1][0]) }
 }
 
-process makeBamToSampleNameMap {
+include { makeBamToSampleNameMap }                   from "./preprocessSamples.nf"
+include { indexReference }                           from "./preprocessReference.nf"
+include { splitIntervals }                           from "./preprocessReference.nf"
+include { makeReferenceDict }                        from "./preprocessReference.nf"
+include { runMutectOnNormal }                        from "./variantCalling.nf"
+include { runMutectOnTumour }                        from "./variantCalling.nf"
+include { runHaplotypeCallerOnNormal }               from "./variantCalling.nf"
+include { genomicsDBImport }                         from "./genomicsDB.nf"
+include { genomicsDBImport_PON }                     from "./genomicsDB.nf"
+include { genomicsDBImport_Somatic }                 from "./genomicsDB.nf"
+include { genotypeGVCFs }                            from "./germlineResource.nf"
+include { mergeGenotypedVCFs }                       from "./germlineResource.nf"
+include { createPanelOfNormals }                     from "./panelOfNormals.nf"
+include { mergePonVCFs }                             from "./panelOfNormals.nf"
+include { extractSomaticCandidates }                 from "./somaticCandidates"
+include { normalizeSomaticCandidates }               from "./somaticCandidates"
+include { mergeSomaticCandidates }                   from "./somaticCandidates"
+include { bcftoolsNormalizeSomaticCandidates }       from "./somaticCandidates"
+include { bcftoolsMergeSomaticCandidatesByInterval } from "./somaticCandidates"
+include { bcftoolsConcatSomaticCandidates }          from "./somaticCandidates"
+
+process finalizeSomaticCandidates {
     input:
-    path(bam_files)
+    tuple path(reference), path(germline_resource), path(panel_of_normals), path(somatic_candidates)
 
     output:
-    path("bam_to_sample_name_map.txt")
+    path("candidates.vcf.gz*")
 
-    script:
-    """
-    for f in ${bam_files.join(' ')}; do
-        samplename=\$(samtools view -H "\$f" | awk '
-    {
-      for (i=1; i<=NF; i++)
-        if (\$i ~ /^SM:/)
-        {
-            split(\$i, a, ":");
-            print a[2];
-            exit
-        }
-    }')
-        filename=\$(basename "\$f")
-        filename=\${filename%.*}
-        printf "%s\t%s\n" \$filename \$samplename
-    done >> bam_to_sample_name_map.txt
-    """
-}
-
-process splitIntervals {
-  input:
-  path(reference)
-  val(numIntervals)
-
-  output:
-  path("Intervals/*.interval_list")
-
-  publishDir "results", mode: 'copy'
-
-  script:
-  """
-  gatk SplitIntervals \
-    --reference "${reference[0]}" \
-    --scatter-count $numIntervals \
-    --intervals 38 \
-    --output Intervals
-  """
-}
-
-process indexReference {
-    input:
-    path(reference)
-
-    output:
-    path("${reference.getName()}.fai")
-
-    script:
-    """
-    samtools faidx ${reference}
-    """
-}
-
-process makeReferenceDict {
-    input:
-    path(reference)
-
-    output:
-    path("*.dict")
-
-    script:
-    def refBase = reference.getName().replaceFirst(/\.[^.]+$/, '')
-    """
-    gatk CreateSequenceDictionary \
-      -R ${reference} \
-      -O ${refBase}.dict
-    """
-}
-
-process runMutectOnNormal {
-    cpus 4
-    memory '8 GB'
-    time '12h'
-    queue 'normal'
-    executor 'lsf'
-    
-    input:
-    tuple val(interval_id), path(reference), val(sample), path(normal_bam), path(interval)
-
-    output:
-    tuple val(interval_id), path("${sample}.*.normal.mutect2_panel_calls.vcf.gz"),
-        path("${sample}.*.normal.mutect2_panel_calls.vcf.gz.tbi"),
-        path("${sample}.*.normal.mutect2_panel_calls.vcf.gz.stats")
-
-    script:
-    intervalNumberMatch = interval.getName() =~ /^(\d+)/
-    intervalNumber = intervalNumberMatch ? intervalNumberMatch[0][1] : 99999
-    """
-    gatk Mutect2 \
-      --reference ${reference[0]} \
-      --input ${normal_bam[0]} \
-      --intervals ${interval} \
-      --interval-padding 150 \
-      --native-pair-hmm-threads ${task.cpus} \
-      --max-mnp-distance 0 \
-      --output ${sample}.${intervalNumber}.normal.mutect2_panel_calls.vcf.gz
-    """
-}
-
-process runMutectOnTumour {
-    cpus 4
-    memory '8 GB'
-    time '12h'
-    queue 'normal'
-    executor 'lsf'
-    
-    input:
-    tuple val(interval_id), path(reference), val(sample), path(tumour_bam), path(interval)
-
-    output:
-    tuple val(interval_id),
-        path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz"),
-        path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz.tbi"),
-        path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz.stats")
-
-    publishDir "results/InitialTumourCalls", mode: 'copy'
+    publishDir "results/SomaticCandidates/Final", mode: 'copy'
     
     script:
-    intervalNumberMatch = interval.getName() =~ /^(\d+)/
-    intervalNumber = intervalNumberMatch ? intervalNumberMatch[0][1] : 99999
     """
-    gatk Mutect2 \
-      --reference ${reference[0]} \
-      --input ${tumour_bam[0]} \
-      --intervals ${interval} \
-      --interval-padding 150 \
-      --native-pair-hmm-threads ${task.cpus} \
-      --max-mnp-distance 0 \
-      --output ${sample}.${intervalNumber}.tumour.mutect2_candidate_discovery_calls.vcf.gz
-    """
-}
+    bcftools norm -m -both -f ${reference[0]} ${germline_resource[0]} \
+        | bcftools view -Oz -o gr.vcf.gz -S ^<(bcftools query -l ${germline_resource[0]})
+    bcftools index -t gr.vcf.gz
+    bcftools norm -m -both -f ${reference[0]} ${panel_of_normals[0]} \
+        | bcftools view -Oz -o pon.vcf.gz -S ^<(bcftools query -l ${panel_of_normals[0]})
+    bcftools index -t pon.vcf.gz
+    bcftools norm -m -both -f ${reference[0]} ${somatic_candidates[0]} \
+        | bcftools view -Oz -o sc.vcf.gz -S ^<(bcftools query -l ${somatic_candidates[0]})
+    bcftools index -t sc.vcf.gz
 
-process runHaplotypeCallerOnNormal {
-    cpus 4
-    memory '8 GB'
-    time '12h'
-    queue 'normal'
-    executor 'lsf'
-    
-    input:
-    tuple val(interval_id), path(reference), val(sample), path(normal_bam), path(interval)
-
-    output:
-    tuple val(interval_id),
-        path("${sample}.${interval_id}.haplotypecaller.g.vcf.gz"),
-        path("${sample}.${interval_id}.haplotypecaller.g.vcf.gz.tbi")
-
-    script:
-    """
-    gatk HaplotypeCaller \
-      --reference ${reference[0]} \
-      --input ${normal_bam[0]} \
-      --intervals ${interval} \
-      --interval-padding 150 \
-      --native-pair-hmm-threads ${task.cpus} \
-      --emit-ref-confidence GVCF \
-        --output ${sample}.${interval_id}.haplotypecaller.g.vcf.gz
-    """
-}
-
-process genomicsDBImport {
-    input:
-    tuple val(interval_id), path(gvcfs), path(gvcf_index), path(interval)
-
-    output:
-    tuple val(interval_id), path("resourceDB")
-
-    script:
-    """
-    gatk GenomicsDBImport \
-      --genomicsdb-workspace-path resourceDB \
-      --batch-size 50 \
-      --genomicsdb-shared-posixfs-optimizations true \
-      --bypass-feature-reader true \
-      --intervals ${interval} \
-      -V ${gvcfs.join(' -V ')}
-    """
-}
-
-process genomicsDBImport_PON {
-    input:
-    tuple val(interval_id), path(vcfs), path(vcf_index), path(statsfiles), path(interval)
-
-    output:
-    tuple val(interval_id), path("ponDB")
-
-    script:
-    """
-    gatk GenomicsDBImport \
-      --genomicsdb-workspace-path ponDB \
-      --batch-size 50 \
-      --genomicsdb-shared-posixfs-optimizations true \
-      --bypass-feature-reader true \
-      --intervals ${interval} \
-      -V ${vcfs.join(' -V ')}
-    """
-}
-
-process genomicsDBImport_Somatic {
-    input:
-    tuple val(interval_id), path(vcfs), path(vcf_index), path(statsfiles), path(interval)
-
-    output:
-    tuple val(interval_id), path("somaticDB")
-
-    script:
-    """
-    gatk GenomicsDBImport \
-      --genomicsdb-workspace-path somaticDB \
-      --batch-size 50 \
-      --genomicsdb-shared-posixfs-optimizations true \
-      --bypass-feature-reader true \
-      --intervals ${interval} \
-      -V ${vcfs.join(' -V ')}
-    """
-}
-
-process createPanelOfNormals {
-    input:
-    tuple val(interval_id), path(reference), path(interval), path(genomeDB)
-
-    output:
-    tuple path("${interval_id}.panel_of_normals.vcf.gz"),
-        path("${interval_id}.panel_of_normals.vcf.gz.tbi")
-
-    script:
-    """
-    gatk CreateSomaticPanelOfNormals \
-        --reference ${reference[0]} \
-        --variant gendb://${genomeDB} \
-        --intervals ${interval} \
-        --output ${interval_id}.panel_of_normals.vcf.gz
-    """
-}
-
-process extractSomaticCandidates {
-    input:
-    tuple val(interval_id), path(reference), path(interval), path(genomeDB)
-
-    output:
-    tuple val(interval_id), path(reference), path("${interval_id}.somatic_candidates_raw.vcf.gz"),
-        path("${interval_id}.somatic_candidates_raw.vcf.gz.tbi")
-
-    script:
-    """
-    gatk SelectVariants \
-        --reference ${reference[0]} \
-        --variant gendb://${genomeDB} \
-        --intervals ${interval} \
-        --output ${interval_id}.somatic_candidates_raw.vcf.gz
-    """
-}
-
-process normalizeSomaticCandidates {
-    input:
-    tuple val(interval_id), path(reference), path(vcf), path(index)
-
-    output:
-    tuple path("${interval_id}.somatic_candidates.vcf.gz"),
-        path("${interval_id}.somatic_candidates.vcf.gz.tbi")
-
-    script:
-    """
-    bcftools view -e 'ALT="*"' ${vcf} \
-        | bcftools norm -m -both -f ${reference[0]} \
-        -Oz -o ${interval_id}.somatic_candidates.vcf.gz
-    bcftools index -t ${interval_id}.somatic_candidates.vcf.gz
-    """
-}
-
-process mergeSomaticCandidates {
-    executor 'local'
-    input:
-    path(candidate_vcfs)
-    path(vcf_indices)
-
-    output:
-    path("somatic_candidates.vcf.gz*")
-
-    publishDir "results/SomaticCandidates/GATK", mode: 'copy'
-
-    script:
-    """
-    bcftools concat -a -D ${candidate_vcfs.join(' ')} \
-        | bcftools sort -Oz -o somatic_candidates.vcf.gz
-    bcftools index somatic_candidates.vcf.gz
-    """
-}
-
-process bcftoolsNormalizeSomaticCandidates {
-    input:
-    tuple val(interval_id), path(reference), path(vcf), path(index), path(stats)
-
-    output:
-    tuple val(interval_id),
-        path("${vcf.getBaseName(2)}.norm.vcf.gz"),
-        path("${vcf.getBaseName(2)}.norm.vcf.gz.tbi"),
-        path(stats)
-
-    script:
-    """
-    bcftools norm -m -both -f ${reference[0]} ${vcf} \
+    bcftools concat -a -d all gr.vcf.gz pon.vcf.gz sc.vcf.gz \
+        | bcftools view -e 'TYPE="indel" && strlen(REF) - strlen(ALT) > 150' \
+        | bcftools view -e 'ALT="*"' \
         | bcftools sort \
-            -Oz -o ${vcf.getBaseName(2)}.norm.vcf.gz
-    bcftools index -t ${vcf.getBaseName(2)}.norm.vcf.gz
+        | bcftools norm -d all \
+        | bcftools annotate -x INFO,QUAL -Oz -o candidates.vcf.gz
+    bcftools index -t candidates.vcf.gz
+
+    rm gr.vcf.gz* pon.vcf.gz* sc.vcf.gz*
     """
 }
 
-process bcftoolsMergeSomaticCandidatesByInterval {
+process callSomaticVariants {
     input:
-    tuple val(interval_id), path(vcfs), path(index), path(stats)
+    tuple val(intervals_id),
+        path(bam),
+        path(reference),
+        path(germline_resource),
+        path(panel_of_normals),
+        path(candidates),
+        path(intervals)
 
     output:
-    tuple path("${interval_id}.somatic_candidates.vcf.gz"),
-        path("${interval_id}.somatic_candidates.vcf.gz.tbi")
+    path("*.unfiltered.vcf.gz*")
 
     script:
     """
-    bcftools merge ${vcfs.sort { it.getName() }.join(' ')} \
-        | bcftools sort -Oz -o ${interval_id}.somatic_candidates.vcf.gz
-    bcftools index -t ${interval_id}.somatic_candidates.vcf.gz
-    """
-}
-
-process bcftoolsConcatSomaticCandidates {
-    input:
-    path(vcfs)
-    path(indexes)
-
-    output:
-    path("bcftoolsSomaticCandidates.vcf.gz*")
-
-    publishDir "results/SomaticCandidates/BcfTools", mode: 'copy'
-
-    script:
-    """
-    bcftools concat -a -D ${vcfs.sort { it.getName() }.join(' ')} \
-        | bcftools sort -Oz \
-        -o bcftoolsSomaticCandidates.vcf.gz
-    bcftools index bcftoolsSomaticCandidates.vcf.gz
-    """
-}
-    
-
-process genotypeGVCFs {
-    input:
-    tuple val(interval_id), path(reference), path(interval), path(genomeDB)
-
-    output:
-    tuple path("${interval_id}.genotyped.vcf.gz"),
-        path("${interval_id}.genotyped.vcf.gz.tbi")
-
-    script:
-    """
-    gatk GenotypeGVCFs \
+    gatk Mutect2 \
         --reference ${reference[0]} \
-        --variant gendb://${genomeDB} \
-        --intervals ${interval} \
-        --output ${interval_id}.genotyped.vcf.gz
-    """
-}
-
-process mergeGenotypedVCFs {
-    executor 'local'
-    input:
-    path(genotyped_vcfs)
-    path(vcf_indices)
-
-    output:
-    path("genome_resource.vcf.gz*")
-
-    publishDir "results/GermlineResource", mode: 'copy'
-    
-    script:
-    """
-    bcftools concat -a -D ${genotyped_vcfs.join(' ')} \
-        | bcftools sort -Oz -o genome_resource.vcf.gz
-    bcftools index genome_resource.vcf.gz
-    """
-}
-
-process mergePonVCFs {
-    executor 'local'
-    input:
-    path(pon_vcfs)
-    path(vcf_indices)
-
-    output:
-    path("panel_of_normals.vcf.gz*")
-
-    publishDir "results/PON", mode: 'copy'
-
-    script:
-    """
-    bcftools concat -a -D ${pon_vcfs.join(' ')} \
-        | bcftools sort -Oz -o panel_of_normals.vcf.gz
-    bcftools index panel_of_normals.vcf.gz
+        --input ${bam} \
+        --germline-resource ${germline_resource[0]} \
+        --panel-of-normals ${panel_of_normals[0]} \
+        --alleles ${candidates[0]} \
+        --f1r2-tar-gz f1r2.tar.gz \
+        --output mutect2.unfiltered.vcf.gz \
+        --intervals ${intervals} \
+        --interval-padding 150 \
+        --assembly-region-padding 300
     """
 }
 
@@ -482,7 +158,7 @@ workflow {
     // Merge the Panel VCFs
     vcfs = panel_of_normals_vcfs.map { it -> it[0] }.collect()
     indices = panel_of_normals_vcfs.map { it -> it[1] }.collect()
-    mergePonVCFs(vcfs, indices)
+    panel_of_normals = mergePonVCFs(vcfs, indices)
 
     // Run Mutect2 on tumours
     tumours_for_candidate_discovery_ch = ref_files.combine(tumour_interval_ch)
@@ -512,7 +188,7 @@ workflow {
     somatic_candidates_by_interval = normalizeSomaticCandidates(extractSomaticCandidates(somatic_ch))
     candidate_vcfs = somatic_candidates_by_interval.map { it -> it[0] }.collect()
     candidate_indices = somatic_candidates_by_interval.map { it -> it[1] }.collect()
-    mergeSomaticCandidates(candidate_vcfs, candidate_indices)                          
+    somatic_candidates = mergeSomaticCandidates(candidate_vcfs, candidate_indices)                          
 
     // Run HaplotypeCaller on normals
     gvcfs_ch = runHaplotypeCallerOnNormal(normals_for_calling_ch)
@@ -530,5 +206,16 @@ workflow {
     // Merge the genotyped VCFs
     vcfs = genotyped_vcfs.map { it -> it[0] }.collect()
     indices = genotyped_vcfs.map { it -> it[1] }.collect()
-    mergeGenotypedVCFs(vcfs, indices)
+    germline_resource = mergeGenotypedVCFs(vcfs, indices)
+
+    // Finalize the Somatic candidates by adding variants from the PON and GR
+    to_finalize_ch = ref_files
+        .combine(germline_resource
+                 .concat(panel_of_normals)
+                 .concat(somatic_candidates)
+                 .collate(3))
+        .map { fa, fai, stats, gr, pon, sc ->
+            tuple([fa, fai, stats], gr, pon, sc ) }
+    
+    finalizeSomaticCandidates(to_finalize_ch)
 }
