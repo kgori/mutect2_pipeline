@@ -70,32 +70,127 @@ process finalizeSomaticCandidates {
     """
 }
 
-process callSomaticVariants {
+process getPileupSummaries {
     input:
-    tuple val(intervals_id),
-        path(bam),
+    tuple val(sample),
         path(reference),
-        path(germline_resource),
-        path(panel_of_normals),
-        path(candidates),
-        path(intervals)
+        path(bam),
+        path(germline_resource)
 
     output:
-    path("*.unfiltered.vcf.gz*")
+    tuple val(sample), path("${sample}.pileups")
 
+    script:
+    """
+    gatk GetPileupSummaries \
+        --reference ${reference[0]} \
+        --input ${bam[0]} \
+        --variant ${germline_resource[0]} \
+        --intervals ${germline_resource[0]} \
+        --minimum-population-allele-frequency 0.01 \
+        --maximum-population-allele-frequency 0.5 \
+        --output ${sample}.pileups
+    """
+}
+
+process calculateContamination {
+    input:
+    tuple val(sample), path(pileup)
+
+    output:
+    tuple val(sample), path("${sample}.contamination.table")
+
+    script:
+    """
+    gatk CalculateContamination \
+        --input ${pileup} \
+        --output ${sample}.contamination.table
+    """
+}
+
+process callSomaticVariants {
+    cpus 4
+    memory '8 GB'
+    time '12h'
+    queue 'normal'
+    executor 'local'
+    
+    input:
+    tuple val(interval_id),
+        path(reference),
+        val(sample),
+        path(bam),
+        path(intervals),
+        path(germline_resource),
+        path(panel_of_normals),
+        path(candidates)
+
+    output:
+    tuple val(sample),
+        path("${interval_id}.${sample}.unfiltered.vcf.gz"),
+        path("${interval_id}.${sample}.unfiltered.vcf.gz.tbi"),
+        path("${interval_id}.${sample}.unfiltered.vcf.gz.stats"),
+        val(interval_id),
+        path(intervals),
+        emit: vcfs
+    tuple val(sample), path("*.f1r2.tar.gz*"), emit: f1r2s
+
+    publishDir "results/SecondTumourCalls", mode: 'copy'
     script:
     """
     gatk Mutect2 \
         --reference ${reference[0]} \
-        --input ${bam} \
+        --input ${bam[0]} \
         --germline-resource ${germline_resource[0]} \
         --panel-of-normals ${panel_of_normals[0]} \
         --alleles ${candidates[0]} \
-        --f1r2-tar-gz f1r2.tar.gz \
-        --output mutect2.unfiltered.vcf.gz \
+        --f1r2-tar-gz ${interval_id}.${sample}.f1r2.tar.gz \
+        --output ${interval_id}.${sample}.unfiltered.vcf.gz \
         --intervals ${intervals} \
         --interval-padding 150 \
         --assembly-region-padding 300
+    """
+}
+
+process filterMutectCalls {
+    input:
+    tuple val(sample),
+        path(reference),
+        path(vcf),
+        val(interval_id),
+        path(intervals),
+        path(contamination),
+        path(orientation)
+
+    output:
+    tuple val(sample),
+        path("${interval_id}.${sample}.filtered.vcf.gz"),
+        path("${interval_id}.${sample}.filtered.vcf.gz.tbi")
+
+    script:
+    """
+    gatk FilterMutectCalls \
+        --reference ${reference[0]} \
+        --variant ${vcf[0]} \
+        --intervals ${intervals} \
+        --contamination-table ${contamination} \
+        --orientation-bias-artifact-priors ${orientation} \
+        --output ${interval_id}.${sample}.filtered.vcf.gz
+    """
+}
+
+process learnReadOrientationModel {
+    input:
+    tuple val(sample), path(f1r2)
+
+    output:
+    tuple val(sample), path("*.model.tar.gz")
+
+    script:
+    """
+    gatk LearnReadOrientationModel \
+        --input ${f1r2.join(' --input ')} \
+        --output ${sample}.model.tar.gz
     """
 }
 
@@ -161,25 +256,25 @@ workflow {
     panel_of_normals = mergePonVCFs(vcfs, indices)
 
     // Run Mutect2 on tumours
-    tumours_for_candidate_discovery_ch = ref_files.combine(tumour_interval_ch)
+    tumours_for_calling_ch = ref_files.combine(tumour_interval_ch)
         .map { fa, fai, dict, sample, tumour_bam, interval_label, interval ->
             tuple(interval_label, [fa, fai, dict], sample, tumour_bam, interval) }
-    tumours_first_called_by_mutect_ch = runMutectOnTumour(tumours_for_candidate_discovery_ch) 
+    tumours_first_called_by_mutect_ch = runMutectOnTumour(tumours_for_calling_ch) 
 
     // Create genomicsDB from the first-round tumour mutect2 calls
     somatic_import_ch = tumours_first_called_by_mutect_ch.groupTuple().combine(ivls, by: 0)
     somatic_db = genomicsDBImport_Somatic(somatic_import_ch)
 
     // Use bcftools to merge somatic candidates
-    to_normalize_ch = ref_files.combine(tumours_first_called_by_mutect_ch).map {
-        fa, fai, dict, interval_label, vcf, tbi, stats ->
-        tuple(interval_label, [fa, fai, dict], vcf, tbi, stats)
-    }
-    somatic_norm_vcfs = bcftoolsNormalizeSomaticCandidates(to_normalize_ch)
-    somatic_merged_vcfs = bcftoolsMergeSomaticCandidatesByInterval(somatic_norm_vcfs.groupTuple())
-    vcfs = somatic_merged_vcfs.map { it -> it[0] }.collect()
-    indices = somatic_merged_vcfs.map { it -> it[1] }.collect()
-    bcftoolsConcatSomaticCandidates(vcfs, indices)
+    // to_normalize_ch = ref_files.combine(tumours_first_called_by_mutect_ch).map {
+    //     fa, fai, dict, interval_label, vcf, tbi, stats ->
+    //     tuple(interval_label, [fa, fai, dict], vcf, tbi, stats)
+    // }
+    // somatic_norm_vcfs = bcftoolsNormalizeSomaticCandidates(to_normalize_ch)
+    // somatic_merged_vcfs = bcftoolsMergeSomaticCandidatesByInterval(somatic_norm_vcfs.groupTuple())
+    // vcfs = somatic_merged_vcfs.map { it -> it[0] }.collect()
+    // indices = somatic_merged_vcfs.map { it -> it[1] }.collect()
+    // bcftoolsConcatSomaticCandidates(vcfs, indices)
 
     // Extract somatic candidates from DB
     somatic_ch = ref_files.combine(ivls.combine(somatic_db, by: 0))
@@ -209,13 +304,47 @@ workflow {
     germline_resource = mergeGenotypedVCFs(vcfs, indices)
 
     // Finalize the Somatic candidates by adding variants from the PON and GR
+    collated_support_vcfs_ch = germline_resource
+        .concat(panel_of_normals)
+        .concat(somatic_candidates)
+        .collate(3)
     to_finalize_ch = ref_files
-        .combine(germline_resource
-                 .concat(panel_of_normals)
-                 .concat(somatic_candidates)
-                 .collate(3))
+        .combine(collated_support_vcfs_ch)
         .map { fa, fai, stats, gr, pon, sc ->
             tuple([fa, fai, stats], gr, pon, sc ) }
     
-    finalizeSomaticCandidates(to_finalize_ch)
+    candidates = finalizeSomaticCandidates(to_finalize_ch)
+
+    // Call somatic variants (round 2 - final calling step before filtering)
+    somatic_calling_ch = tumours_for_calling_ch
+        .combine(collated_support_vcfs_ch)
+    unfiltered_calls_ch = callSomaticVariants(somatic_calling_ch)
+
+    // Build a strand bias model
+    orientation_model_ch = unfiltered_calls_ch.f1r2s.groupTuple()
+        .map { key, files -> tuple(key, files.sort { it.name }) }
+    orientation_model = learnReadOrientationModel(orientation_model_ch)
+    
+    // Build a contamination model
+    to_pileup_ch = ref_files.combine(tumours.concat(normals)).combine(germline_resource)
+        .map { fa, fai, dict, sample, bam, resource_vcf, resource_index ->
+            tuple(sample, [fa, fai, dict], bam, [resource_vcf, resource_index]) }
+    pileup = getPileupSummaries(to_pileup_ch)
+    contamination_model = calculateContamination(pileup)
+
+    // Filter calls
+    to_filter_ch = ref_files.combine(unfiltered_calls_ch.vcfs)
+            .map { fa, fai, dict, sample, vcf, tbi, stats, interval_id, intervals ->
+                tuple(sample, [fa, fai, dict], [vcf, tbi, stats], interval_id, intervals) }
+        .combine(contamination_model, by: 0)
+        .combine(orientation_model, by: 0)
+
+    filtered = filterMutectCalls(to_filter_ch)
+
+    // Merge final variants
+    grouped = filtered.groupTuple()
+        .map { label, vcfs, indices -> tuple(label, vcfs.sort { it.name }, indices.sort { it.name }) } | view
+    // vcfs = grouped.map { key, files -> tuple(key, files.collect(files[0]).sort { it.name }) }
+    // vcfs | view
+    // .map { key, files -> tuple(key, files.sort { it.name }) } | view
 }
