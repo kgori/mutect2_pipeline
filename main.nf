@@ -16,26 +16,28 @@ def remove_duplicate_filepair_keys(primary_ch, secondary_ch) {
         map { it -> tuple(it[0], it[1][0]) }
 }
 
-include { makeBamToSampleNameMap }                   from "./preprocessSamples.nf"
-include { indexReference }                           from "./preprocessReference.nf"
-include { splitIntervals }                           from "./preprocessReference.nf"
-include { makeReferenceDict }                        from "./preprocessReference.nf"
-include { runMutectOnNormal }                        from "./variantCalling.nf"
-include { runMutectOnTumour }                        from "./variantCalling.nf"
-include { runHaplotypeCallerOnNormal }               from "./variantCalling.nf"
-include { genomicsDBImport }                         from "./genomicsDB.nf"
-include { genomicsDBImport_PON }                     from "./genomicsDB.nf"
-include { genomicsDBImport_Somatic }                 from "./genomicsDB.nf"
-include { genotypeGVCFs }                            from "./germlineResource.nf"
-include { mergeGenotypedVCFs }                       from "./germlineResource.nf"
-include { createPanelOfNormals }                     from "./panelOfNormals.nf"
-include { mergePonVCFs }                             from "./panelOfNormals.nf"
-include { extractSomaticCandidates }                 from "./somaticCandidates"
-include { normalizeSomaticCandidates }               from "./somaticCandidates"
-include { mergeSomaticCandidates }                   from "./somaticCandidates"
-include { bcftoolsNormalizeSomaticCandidates }       from "./somaticCandidates"
-include { bcftoolsMergeSomaticCandidatesByInterval } from "./somaticCandidates"
-include { bcftoolsConcatSomaticCandidates }          from "./somaticCandidates"
+include { makeBamToSampleNameMap }                             from "./preprocessSamples.nf"
+include { indexReference }                                     from "./preprocessReference.nf"
+include { splitIntervals }                                     from "./preprocessReference.nf"
+include { makeReferenceDict }                                  from "./preprocessReference.nf"
+include { runMutectOnNormal }                                  from "./variantCalling.nf"
+include { runMutectOnTumour }                                  from "./variantCalling.nf"
+include { runHaplotypeCallerOnNormal }                         from "./variantCalling.nf"
+include { genomicsDBImport }                                   from "./genomicsDB.nf"
+include { genomicsDBImport_PON }                               from "./genomicsDB.nf"
+include { genomicsDBImport_Somatic }                           from "./genomicsDB.nf"
+include { genotypeGVCFs }                                      from "./germlineResource.nf"
+include { mergeGenotypedVCFs }                                 from "./germlineResource.nf"
+include { createPanelOfNormals }                               from "./panelOfNormals.nf"
+include { mergePonVCFs }                                       from "./panelOfNormals.nf"
+include { extractSomaticCandidates }                           from "./somaticCandidates.nf"
+include { normalizeSomaticCandidates }                         from "./somaticCandidates.nf"
+include { mergeSomaticCandidates }                             from "./somaticCandidates.nf"
+include { bcftoolsNormalizeSomaticCandidates }                 from "./somaticCandidates.nf"
+include { bcftoolsMergeSomaticCandidatesByInterval }           from "./somaticCandidates.nf"
+include { bcftoolsConcatSomaticCandidates }                    from "./somaticCandidates.nf"
+include { callSomaticVariants }                                from "./somaticCalling.nf"
+include { callSomaticVariants as callSomaticVariantsOnNormal } from "./somaticCalling.nf"
 
 process finalizeSomaticCandidates {
     input:
@@ -108,50 +110,6 @@ process calculateContamination {
     """
 }
 
-process callSomaticVariants {
-    cpus 4
-    memory '8 GB'
-    time '12h'
-    queue 'normal'
-    executor 'local'
-    
-    input:
-    tuple val(interval_id),
-        path(reference),
-        val(sample),
-        path(bam),
-        path(intervals),
-        path(germline_resource),
-        path(panel_of_normals),
-        path(candidates)
-
-    output:
-    tuple val(sample),
-        path("${interval_id}.${sample}.unfiltered.vcf.gz"),
-        path("${interval_id}.${sample}.unfiltered.vcf.gz.tbi"),
-        path("${interval_id}.${sample}.unfiltered.vcf.gz.stats"),
-        val(interval_id),
-        path(intervals),
-        emit: vcfs
-    tuple val(sample), path("*.f1r2.tar.gz*"), emit: f1r2s
-
-    publishDir "results/SecondTumourCalls", mode: 'copy'
-    script:
-    """
-    gatk Mutect2 \
-        --reference ${reference[0]} \
-        --input ${bam[0]} \
-        --germline-resource ${germline_resource[0]} \
-        --panel-of-normals ${panel_of_normals[0]} \
-        --alleles ${candidates[0]} \
-        --f1r2-tar-gz ${interval_id}.${sample}.f1r2.tar.gz \
-        --output ${interval_id}.${sample}.unfiltered.vcf.gz \
-        --intervals ${intervals} \
-        --interval-padding 150 \
-        --assembly-region-padding 300
-    """
-}
-
 process filterMutectCalls {
     input:
     tuple val(sample),
@@ -167,6 +125,8 @@ process filterMutectCalls {
         path("${interval_id}.${sample}.filtered.vcf.gz"),
         path("${interval_id}.${sample}.filtered.vcf.gz.tbi")
 
+    publishDir "results/Filtered", mode: 'copy'
+
     script:
     """
     gatk FilterMutectCalls \
@@ -176,6 +136,50 @@ process filterMutectCalls {
         --contamination-table ${contamination} \
         --orientation-bias-artifact-priors ${orientation} \
         --output ${interval_id}.${sample}.filtered.vcf.gz
+    """
+}
+
+process concatFilteredCalls {
+    input:
+    tuple val(sample),
+        path(reference),
+        path(vcfs),
+        path(tbis)
+
+    output:
+    path(reference), emit: ref
+    path("*.concatenated.vcf.gz"), emit: vcf
+    path("*.concatenated.vcf.gz.tbi"), emit: tbi
+
+    script:
+    """
+    bcftools concat *.vcf.gz \
+        | bcftools sort \
+        | bcftools norm -f ${reference[0]} -m -both \
+            -Oz -o "${sample}.concatenated.vcf.gz"
+    bcftools index -t "${sample}.concatenated.vcf.gz"
+    """
+}
+
+process mergeFilteredCalls {
+    input:
+    path(reference)
+    path(vcfs)
+    path(tbis)
+
+    output:
+    path("Final.vcf.gz*")
+
+    publishDir "results/Filtered", mode: 'copy'
+    
+    script:
+    """
+    bcftools merge \
+        --threads ${task.cpus} \
+        ${vcfs.sort { it.getName() }.join(' ')} \
+        | bcftools norm -f ${reference[0]} -m + \
+            -Oz -o Final.vcf.gz \
+            -W=tbi
     """
 }
 
@@ -320,8 +324,15 @@ workflow {
         .combine(collated_support_vcfs_ch)
     unfiltered_calls_ch = callSomaticVariants(somatic_calling_ch)
 
+    // Run on normals, too
+    somatic_normals_ch = normals_for_calling_ch
+        .combine(collated_support_vcfs_ch)
+    unfiltered_normals_ch = callSomaticVariantsOnNormal(somatic_normals_ch)
+
     // Build a strand bias model
-    orientation_model_ch = unfiltered_calls_ch.f1r2s.groupTuple()
+    orientation_model_ch = unfiltered_calls_ch.f1r2s
+        .concat(unfiltered_normals_ch.f1r2s)
+        .groupTuple(size: params.numIntervals)
         .map { key, files -> tuple(key, files.sort { it.name }) }
     orientation_model = learnReadOrientationModel(orientation_model_ch)
     
@@ -333,7 +344,8 @@ workflow {
     contamination_model = calculateContamination(pileup)
 
     // Filter calls
-    to_filter_ch = ref_files.combine(unfiltered_calls_ch.vcfs)
+    to_filter_ch = ref_files.combine(unfiltered_calls_ch.vcfs
+                                     .concat(unfiltered_normals_ch.vcfs))
             .map { fa, fai, dict, sample, vcf, tbi, stats, interval_id, intervals ->
                 tuple(sample, [fa, fai, dict], [vcf, tbi, stats], interval_id, intervals) }
         .combine(contamination_model, by: 0)
@@ -342,9 +354,12 @@ workflow {
     filtered = filterMutectCalls(to_filter_ch)
 
     // Merge final variants
-    grouped = filtered.groupTuple()
-        .map { label, vcfs, indices -> tuple(label, vcfs.sort { it.name }, indices.sort { it.name }) } | view
-    // vcfs = grouped.map { key, files -> tuple(key, files.collect(files[0]).sort { it.name }) }
-    // vcfs | view
-    // .map { key, files -> tuple(key, files.sort { it.name }) } | view
+    grouped = filtered.groupTuple(size: params.numIntervals)
+        .map { label, vcfs, indices -> tuple(label, vcfs.sort { it.name }, indices.sort { it.name }) }
+    grouped_with_ref = ref_files.combine(grouped)
+        .map { fa, fai, dict, sample, vcfs, tbis ->
+            tuple(sample, [fa, fai, dict], vcfs, tbis) }
+
+    concat = concatFilteredCalls(grouped_with_ref)
+    mergeFilteredCalls(concat.ref, concat.vcf.collect(), concat.tbi.collect())
 }
