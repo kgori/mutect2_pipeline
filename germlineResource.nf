@@ -25,7 +25,7 @@ process mergeGenotypedVCFs {
     output:
     path("germline_resource.vcf.gz*")
 
-    publishDir "results/GermlineResource", mode: 'copy'
+    publishDir "${params.outdir}/GermlineResource", mode: 'copy'
     
     script:
     """

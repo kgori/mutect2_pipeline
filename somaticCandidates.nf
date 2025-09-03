@@ -6,7 +6,7 @@ process extractSomaticCandidates {
     tuple val(interval_id), path(reference), path("${interval_id}.somatic_candidates_raw.vcf.gz"),
         path("${interval_id}.somatic_candidates_raw.vcf.gz.tbi")
 
-    publishDir "results/SomaticCandidates/GATK", mode: 'copy'
+    publishDir "${params.outdir}/SomaticCandidates/GATK", mode: 'copy'
 
     script:
     """
@@ -26,7 +26,7 @@ process normalizeSomaticCandidates {
     tuple path("${interval_id}.somatic_candidates.vcf.gz"),
         path("${interval_id}.somatic_candidates.vcf.gz.tbi")
 
-    publishDir "results/SomaticCandidates/GATK", mode: 'copy'
+    publishDir "${params.outdir}/SomaticCandidates/GATK", mode: 'copy'
     script:
     """
     bcftools norm -m -both -f ${reference[0]} ${vcf} \
@@ -45,7 +45,7 @@ process mergeSomaticCandidates {
     output:
     path("somatic_candidates.vcf.gz*")
 
-    publishDir "results/SomaticCandidates/GATK", mode: 'copy'
+    publishDir "${params.outdir}/SomaticCandidates/GATK", mode: 'copy'
 
     script:
     """
@@ -65,7 +65,7 @@ process bcftoolsNormalizeSomaticCandidates {
         path("${vcf.getBaseName(2)}.norm.vcf.gz.tbi"),
         path(stats)
 
-    publishDir "results/SomaticCandidates/Bcftools", mode: 'copy'
+    publishDir "${params.outdir}/SomaticCandidates/Bcftools", mode: 'copy'
 
     script:
     """
@@ -84,7 +84,7 @@ process bcftoolsMergeSomaticCandidatesByInterval {
     tuple path("${interval_id}.somatic_candidates.vcf.gz"),
         path("${interval_id}.somatic_candidates.vcf.gz.tbi")
 
-    publishDir "results/SomaticCandidates/Bcftools", mode: 'copy'
+    publishDir "${params.outdir}/SomaticCandidates/Bcftools", mode: 'copy'
 
     script:
     """
@@ -102,7 +102,7 @@ process bcftoolsConcatSomaticCandidates {
     output:
     path("bcftoolsSomaticCandidates.vcf.gz*")
 
-    publishDir "results/SomaticCandidates/BcfTools", mode: 'copy'
+    publishDir "${params.outdir}/SomaticCandidates/BcfTools", mode: 'copy'
 
     script:
     """

@@ -44,7 +44,7 @@ process runMutectOnTumour {
         path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz.tbi"),
         path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz.stats")
 
-    publishDir "results/InitialTumourCalls", mode: 'copy'
+    publishDir "${params.outdir}/InitialTumourCalls", mode: 'copy'
     
     script:
     intervalNumberMatch = interval.getName() =~ /^(\d+)/

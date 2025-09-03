@@ -3,6 +3,7 @@ nextflow.enable.dsl=2
 params.reference    = "genome.fa"
 params.normals      = "normals_folder"
 params.tumours      = "tumours_folder"
+params.outdir       = "results"
 params.numIntervals = 8
 
 
@@ -46,7 +47,7 @@ process finalizeSomaticCandidates {
     output:
     path("candidates.vcf.gz*")
 
-    publishDir "results/SomaticCandidates/Final", mode: 'copy'
+    publishDir "${params.outdir}/SomaticCandidates/Final", mode: 'copy'
     
     script:
     """
@@ -125,7 +126,7 @@ process filterMutectCalls {
         path("${interval_id}.${sample}.filtered.vcf.gz"),
         path("${interval_id}.${sample}.filtered.vcf.gz.tbi")
 
-    publishDir "results/Filtered", mode: 'copy'
+    publishDir "${params.outdir}/Filtered", mode: 'copy'
 
     script:
     """
@@ -170,7 +171,7 @@ process mergeFilteredCalls {
     output:
     path("Final.vcf.gz*")
 
-    publishDir "results/Filtered", mode: 'copy'
+    publishDir "${params.outdir}/Filtered", mode: 'copy'
     
     script:
     """

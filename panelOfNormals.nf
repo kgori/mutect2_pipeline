@@ -25,7 +25,7 @@ process mergePonVCFs {
     output:
     path("panel_of_normals.vcf.gz*")
 
-    publishDir "results/PON", mode: 'copy'
+    publishDir "${params.outdir}/PON", mode: 'copy'
 
     script:
     """
