@@ -6,7 +6,7 @@ process splitIntervals {
   output:
   path("Intervals/*.interval_list")
 
-  publishDir "${params.outdir}", mode: 'copy'
+  publishDir "${params.outdir}", mode: 'symlink'
 
   script:
   """

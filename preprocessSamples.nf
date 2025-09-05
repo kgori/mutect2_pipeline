@@ -5,6 +5,8 @@ process makeBamToSampleNameMap {
     output:
     path("bam_to_sample_name_map.txt")
 
+    publishDir "${params.outdir}/SamplenameMap", mode: 'symlink'
+
     script:
     """
     for f in ${bam_files.join(' ')}; do

@@ -25,7 +25,7 @@ process callSomaticVariants {
         emit: vcfs
     tuple val(sample), path("*.f1r2.tar.gz*"), emit: f1r2s
 
-    publishDir "${params.outdir}/SecondTumourCalls", mode: 'copy'
+    publishDir "${params.outdir}/SecondTumourCalls", mode: 'symlink'
     script:
     """
     gatk Mutect2 \

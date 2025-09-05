@@ -45,9 +45,9 @@ process finalizeSomaticCandidates {
     tuple path(reference), path(germline_resource), path(panel_of_normals), path(somatic_candidates)
 
     output:
-    path("candidates.vcf.gz*")
+    tuple path(germline_resource), path(panel_of_normals), path("candidates.vcf.gz*")
 
-    publishDir "${params.outdir}/SomaticCandidates/Final", mode: 'copy'
+    publishDir "${params.outdir}/SomaticCandidates/Final", mode: 'symlink', pattern: '*.vcf.gz*'
     
     script:
     """
@@ -126,7 +126,7 @@ process filterMutectCalls {
         path("${interval_id}.${sample}.filtered.vcf.gz"),
         path("${interval_id}.${sample}.filtered.vcf.gz.tbi")
 
-    publishDir "${params.outdir}/Filtered", mode: 'copy'
+    publishDir "${params.outdir}/Filtered", mode: 'symlink'
 
     script:
     """
@@ -171,7 +171,7 @@ process mergeFilteredCalls {
     output:
     path("Final.vcf.gz*")
 
-    publishDir "${params.outdir}/Filtered", mode: 'copy'
+    publishDir "${params.outdir}/Filtered", mode: 'symlink', pattern: 'Final.vcf.gz*'
     
     script:
     """
@@ -322,12 +322,12 @@ workflow {
 
     // Call somatic variants (round 2 - final calling step before filtering)
     somatic_calling_ch = tumours_for_calling_ch
-        .combine(collated_support_vcfs_ch)
+        .combine(candidates)
     unfiltered_calls_ch = callSomaticVariants(somatic_calling_ch)
 
     // Run on normals, too
     somatic_normals_ch = normals_for_calling_ch
-        .combine(collated_support_vcfs_ch)
+        .combine(candidates)
     unfiltered_normals_ch = callSomaticVariantsOnNormal(somatic_normals_ch)
 
     // Build a strand bias model

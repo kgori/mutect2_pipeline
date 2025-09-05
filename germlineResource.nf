@@ -6,6 +6,8 @@ process genotypeGVCFs {
     tuple path("${interval_id}.genotyped.vcf.gz"),
         path("${interval_id}.genotyped.vcf.gz.tbi")
 
+    publishDir "${params.outdir}/GermlineResource/GenotypingResults", mode: 'symlink'
+
     script:
     """
     gatk GenotypeGVCFs \
@@ -25,7 +27,7 @@ process mergeGenotypedVCFs {
     output:
     path("germline_resource.vcf.gz*")
 
-    publishDir "${params.outdir}/GermlineResource", mode: 'copy'
+    publishDir "${params.outdir}/GermlineResource", mode: 'symlink'
     
     script:
     """
