@@ -1,0 +1,41 @@
+Bootstrap: docker
+From: broadinstitute/gatk:4.6.2.0
+
+%help
+    GATK 4.6.2.0 with updated bcftools 1.22 and vt
+
+%post
+    apt-get update && apt-get install -y \
+        autoconf \
+        automake \
+        libcurl4-openssl-dev \
+        libssl-dev \
+        zlib1g-dev \
+        libbz2-dev \
+        liblzma-dev \
+        && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+    cd /opt && \
+    git clone --recurse-submodules --branch 1.22 https://github.com/samtools/htslib.git
+    git clone --recurse-submodules --branch 1.22 https://github.com/samtools/bcftools.git
+    cd /opt/htslib && \
+    autoreconf -i && \
+    CC=/usr/bin/gcc CXX=/usr/bin/g++ ./configure --prefix=/ --enable-libcurl
+    make && make install
+
+    cd /opt/bcftools && \
+    autoreconf -i && \
+    CC=/usr/bin/gcc CXX=/usr/bin/g++ ./configure --prefix=/
+    make && make install
+
+    rm -rf /opt/htslib /opt/bcftools
+
+    cd /opt && \
+    git clone https://github.com/atks/vt.git && \
+    cd /opt/vt && \
+    git checkout 6b31b44 && \
+    git submodule update --init --recursive && \
+    PATH=/usr/bin:$PATH make && mv vt /bin
+
+    rm -rf /opt/vt
+
