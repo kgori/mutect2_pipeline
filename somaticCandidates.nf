@@ -113,3 +113,35 @@ process bcftoolsConcatSomaticCandidates {
     """
 }
     
+process finalizeSomaticCandidates {
+    input:
+    tuple path(reference), path(germline_resource), path(panel_of_normals), path(somatic_candidates)
+
+    output:
+    tuple path(germline_resource), path(panel_of_normals), path("candidates.vcf.gz*")
+
+    publishDir "${params.outdir}/SomaticCandidates/Final", mode: 'symlink', pattern: '*.vcf.gz*'
+
+    script:
+    """
+    bcftools norm -m -both -f ${reference[0]} ${germline_resource[0]} \
+        | bcftools view -Oz -o gr.vcf.gz -S ^<(bcftools query -l ${germline_resource[0]})
+    bcftools index -t gr.vcf.gz
+    bcftools norm -m -both -f ${reference[0]} ${panel_of_normals[0]} \
+        | bcftools view -Oz -o pon.vcf.gz -S ^<(bcftools query -l ${panel_of_normals[0]})
+    bcftools index -t pon.vcf.gz
+    bcftools norm -m -both -f ${reference[0]} ${somatic_candidates[0]} \
+        | bcftools view -Oz -o sc.vcf.gz -S ^<(bcftools query -l ${somatic_candidates[0]})
+    bcftools index -t sc.vcf.gz
+
+    bcftools concat -a -d all gr.vcf.gz pon.vcf.gz sc.vcf.gz \
+        | bcftools view -e 'TYPE="indel" && strlen(REF) - strlen(ALT) > 150' \
+        | bcftools view -e 'ALT="*"' \
+        | bcftools sort \
+        | bcftools norm -d all \
+        | bcftools annotate -x INFO,QUAL -Oz -o candidates.vcf.gz
+    bcftools index -t candidates.vcf.gz
+
+    rm gr.vcf.gz* pon.vcf.gz* sc.vcf.gz*
+    """
+}

@@ -6,7 +6,6 @@ params.tumours      = "tumours_folder"
 params.outdir       = "results"
 params.numIntervals = 8
 
-
 def remove_duplicate_filepair_keys(primary_ch, secondary_ch) {
     // primary_ch and secondary_ch are channels produced by
     // `fromFilePairs`. If any keys are present in both channels,
@@ -34,44 +33,10 @@ include { mergePonVCFs }                                       from "./panelOfNo
 include { extractSomaticCandidates }                           from "./somaticCandidates.nf"
 include { normalizeSomaticCandidates }                         from "./somaticCandidates.nf"
 include { mergeSomaticCandidates }                             from "./somaticCandidates.nf"
-include { bcftoolsNormalizeSomaticCandidates }                 from "./somaticCandidates.nf"
-include { bcftoolsMergeSomaticCandidatesByInterval }           from "./somaticCandidates.nf"
-include { bcftoolsConcatSomaticCandidates }                    from "./somaticCandidates.nf"
+include { finalizeSomaticCandidates }                          from "./somaticCandidates.nf"
 include { callSomaticVariants }                                from "./somaticCalling.nf"
 include { callSomaticVariants as callSomaticVariantsOnNormal } from "./somaticCalling.nf"
 
-process finalizeSomaticCandidates {
-    input:
-    tuple path(reference), path(germline_resource), path(panel_of_normals), path(somatic_candidates)
-
-    output:
-    tuple path(germline_resource), path(panel_of_normals), path("candidates.vcf.gz*")
-
-    publishDir "${params.outdir}/SomaticCandidates/Final", mode: 'symlink', pattern: '*.vcf.gz*'
-    
-    script:
-    """
-    bcftools norm -m -both -f ${reference[0]} ${germline_resource[0]} \
-        | bcftools view -Oz -o gr.vcf.gz -S ^<(bcftools query -l ${germline_resource[0]})
-    bcftools index -t gr.vcf.gz
-    bcftools norm -m -both -f ${reference[0]} ${panel_of_normals[0]} \
-        | bcftools view -Oz -o pon.vcf.gz -S ^<(bcftools query -l ${panel_of_normals[0]})
-    bcftools index -t pon.vcf.gz
-    bcftools norm -m -both -f ${reference[0]} ${somatic_candidates[0]} \
-        | bcftools view -Oz -o sc.vcf.gz -S ^<(bcftools query -l ${somatic_candidates[0]})
-    bcftools index -t sc.vcf.gz
-
-    bcftools concat -a -d all gr.vcf.gz pon.vcf.gz sc.vcf.gz \
-        | bcftools view -e 'TYPE="indel" && strlen(REF) - strlen(ALT) > 150' \
-        | bcftools view -e 'ALT="*"' \
-        | bcftools sort \
-        | bcftools norm -d all \
-        | bcftools annotate -x INFO,QUAL -Oz -o candidates.vcf.gz
-    bcftools index -t candidates.vcf.gz
-
-    rm gr.vcf.gz* pon.vcf.gz* sc.vcf.gz*
-    """
-}
 
 process getPileupSummaries {
     input:
@@ -126,8 +91,6 @@ process filterMutectCalls {
         path("${interval_id}.${sample}.filtered.vcf.gz"),
         path("${interval_id}.${sample}.filtered.vcf.gz.tbi")
 
-    publishDir "${params.outdir}/Filtered", mode: 'symlink'
-
     script:
     """
     gatk FilterMutectCalls \
@@ -151,6 +114,8 @@ process concatFilteredCalls {
     path(reference), emit: ref
     path("*.concatenated.vcf.gz"), emit: vcf
     path("*.concatenated.vcf.gz.tbi"), emit: tbi
+
+    publishDir "${params.outdir}/Filtered/Samples", mode: 'symlink', pattern: '*.concatenated.vcf.gz*'
 
     script:
     """
