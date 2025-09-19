@@ -138,7 +138,8 @@ process finalizeSomaticCandidates {
         | bcftools view -e 'TYPE="indel" && strlen(REF) - strlen(ALT) > 150' \
         | bcftools view -e 'ALT="*"' \
         | bcftools sort \
-        | bcftools norm -d all \
+        | bcftools norm -f ${reference[0]} \
+        | bcftools norm -d exact \
         | bcftools annotate -x INFO,QUAL -Oz -o candidates.vcf.gz
     bcftools index -t candidates.vcf.gz
 

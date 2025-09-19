@@ -36,6 +36,7 @@ include { mergeSomaticCandidates }                             from "./somaticCa
 include { finalizeSomaticCandidates }                          from "./somaticCandidates.nf"
 include { callSomaticVariants }                                from "./somaticCalling.nf"
 include { callSomaticVariants as callSomaticVariantsOnNormal } from "./somaticCalling.nf"
+include { recallGermlineVariants }                             from "./somaticCalling.nf"
 
 
 process getPileupSummaries {
@@ -99,6 +100,7 @@ process filterMutectCalls {
         --intervals ${intervals} \
         --contamination-table ${contamination} \
         --orientation-bias-artifact-priors ${orientation} \
+        --unique-alt-read-count 3 \
         --output ${interval_id}.${sample}.filtered.vcf.gz
     """
 }
@@ -116,6 +118,30 @@ process concatFilteredCalls {
     path("*.concatenated.vcf.gz.tbi"), emit: tbi
 
     publishDir "${params.outdir}/Filtered/Samples", mode: 'symlink', pattern: '*.concatenated.vcf.gz*'
+
+    script:
+    """
+    bcftools concat *.vcf.gz \
+        | bcftools sort \
+        | bcftools norm -f ${reference[0]} -m -both \
+            -Oz -o "${sample}.concatenated.vcf.gz"
+    bcftools index -t "${sample}.concatenated.vcf.gz"
+    """
+}
+
+process concatSecondHaplotypeCallerCalls {
+    input:
+    tuple val(sample),
+        path(reference),
+        path(vcfs),
+        path(tbis)
+
+    output:
+    path(reference), emit: ref
+    path("*.concatenated.vcf.gz"), emit: vcf
+    path("*.concatenated.vcf.gz.tbi"), emit: tbi
+
+    publishDir "${params.outdir}/SecondHaplotypeCallerCalls/Samples", mode: 'symlink', pattern: '*.concatenated.vcf.gz*'
 
     script:
     """
@@ -295,6 +321,9 @@ workflow {
         .combine(candidates)
     unfiltered_normals_ch = callSomaticVariantsOnNormal(somatic_normals_ch)
 
+    // Rerun haplotype caller on normals at candidate sites
+    rehaplotyped_normals = recallGermlineVariants(somatic_normals_ch)
+
     // Build a strand bias model
     orientation_model_ch = unfiltered_calls_ch.f1r2s
         .concat(unfiltered_normals_ch.f1r2s)
@@ -325,7 +354,17 @@ workflow {
     grouped_with_ref = ref_files.combine(grouped)
         .map { fa, fai, dict, sample, vcfs, tbis ->
             tuple(sample, [fa, fai, dict], vcfs, tbis) }
-
     concat = concatFilteredCalls(grouped_with_ref)
     mergeFilteredCalls(concat.ref, concat.vcf.collect(), concat.tbi.collect())
+
+    // And the normals
+    grouped_rehaplotyped = rehaplotyped_normals
+        .map { it -> tuple(it[0], it[1], it[2]) } // sample, vcf, tbi
+        .groupTuple(size: params.numIntervals)
+        .map { label, vcfs, indices -> tuple(label, vcfs.sort { it.name }, indices.sort { it.name }) }
+    grouped_rehaplotyped_with_ref = ref_files.combine(grouped_rehaplotyped)
+        .map { fa, fai, dict, sample, vcfs, tbis ->
+            tuple(sample, [fa, fai, dict], vcfs, tbis) }
+
+    concat_rehaplotyped = concatSecondHaplotypeCallerCalls(grouped_rehaplotyped_with_ref)
 }
