@@ -123,7 +123,8 @@ process concatFilteredCalls {
     """
     bcftools concat *.vcf.gz \
         | bcftools sort \
-        | bcftools norm -f ${reference[0]} -m -both \
+        | normalise_mutect2_vcf.py - \
+        | bcftools norm -f ${reference[0]} \
             -Oz -o "${sample}.concatenated.vcf.gz"
     bcftools index -t "${sample}.concatenated.vcf.gz"
     """
