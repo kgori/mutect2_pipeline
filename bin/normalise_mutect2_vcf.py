@@ -88,27 +88,6 @@ def split_as_sb_table(array: tuple[str, ...], allele_index: int):
     assert 0 < allele_index < len(alleles)
     return '|'.join((alleles[0], alleles[allele_index]))
 
-def split_multiallelics(input_vcf: str):
-    if input_vcf == '-':
-        bcf_in = pysam.VariantFile("-", "r")
-    else:
-        bcf_in = pysam.VariantFile(input_vcf, "r")
-    header = bcf_in.header.copy()
-    header.add_meta("split_multiallelic", value="normalise_mutect2_vcf.py")
-    bcf_out = pysam.VariantFile("-", "w", header=header)
-    info_fields, format_fields = get_fields_from_header(bcf_in)
-    for rec in bcf_in:
-        split_recs = split_multiallelic_record(rec, bcf_out, info_fields, format_fields)
-        for split_rec in split_recs:
-            bcf_out.write(split_rec)
-
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Split multiallelic records in a Mutect2 VCF")
-    parser.add_argument("input_vcf", help="Input VCF file (can be bgzipped and indexed), or '-' for stdin")
-    args = parser.parse_args()
-    split_multiallelics(args.input_vcf)
-
 def split_multiallelic_record(rec, bcf_out, info_fields, format_fields):
     if len(rec.alleles) <= 2:
         return [rec]
@@ -183,6 +162,23 @@ def get_fields_from_header(bcf_in):
         format_fields[key] = metadata.number
     return info_fields, format_fields
 
+def split_multiallelics(input_vcf: str):
+    bcf_in = pysam.VariantFile(input_vcf, "r")
+    header = bcf_in.header.copy()
+    header.add_meta("split_multiallelic", value="normalise_mutect2_vcf.py")
+    bcf_out = pysam.VariantFile("-", "w", header=header)
+    info_fields, format_fields = get_fields_from_header(bcf_in)
+    for rec in bcf_in:
+        split_recs = split_multiallelic_record(rec, bcf_out, info_fields, format_fields)
+        for split_rec in split_recs:
+            bcf_out.write(split_rec)
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Split multiallelic records in a Mutect2 VCF")
+    parser.add_argument("input_vcf", help="Input VCF file, or '-' for stdin")
+    args = parser.parse_args()
+    split_multiallelics(args.input_vcf)
 
 if __name__ == "__main__":
     main()
