@@ -13,7 +13,7 @@ process runMutectOnNormal {
         path("${sample}.*.normal.mutect2_panel_calls.vcf.gz.tbi"),
         path("${sample}.*.normal.mutect2_panel_calls.vcf.gz.stats")
 
-    publishDir "${params.outdir}/InitialNormalMutectCalls", mode: 'symlink'
+    publishDir "${params.outdir}/InitialNormalMutectCalls", mode: 'copy'
     
     script:
     intervalNumberMatch = interval.getName() =~ /^(\d+)/
@@ -46,7 +46,7 @@ process runMutectOnTumour {
         path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz.tbi"),
         path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz.stats")
 
-    publishDir "${params.outdir}/InitialTumourMutectCalls", mode: 'symlink'
+    publishDir "${params.outdir}/InitialTumourMutectCalls", mode: 'copy'
     
     script:
     intervalNumberMatch = interval.getName() =~ /^(\d+)/
@@ -78,7 +78,7 @@ process runHaplotypeCallerOnNormal {
         path("${sample}.${interval_id}.haplotypecaller.g.vcf.gz"),
         path("${sample}.${interval_id}.haplotypecaller.g.vcf.gz.tbi")
 
-    publishDir "${params.outdir}/InitialNormalHaplotypeCallerCalls", mode: 'symlink'
+    publishDir "${params.outdir}/InitialNormalHaplotypeCallerCalls", mode: 'copy'
 
     script:
     """

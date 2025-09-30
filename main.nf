@@ -20,9 +20,9 @@ include { makeBamToSampleNameMap }                             from "./preproces
 include { indexReference }                                     from "./preprocessReference.nf"
 include { splitIntervals }                                     from "./preprocessReference.nf"
 include { makeReferenceDict }                                  from "./preprocessReference.nf"
-include { runMutectOnNormal }                                  from "./variantCalling.nf"
-include { runMutectOnTumour }                                  from "./variantCalling.nf"
-include { runHaplotypeCallerOnNormal }                         from "./variantCalling.nf"
+include { runMutectOnNormal }                                  from "./initialVariantCalling.nf"
+include { runMutectOnTumour }                                  from "./initialVariantCalling.nf"
+include { runHaplotypeCallerOnNormal }                         from "./initialVariantCalling.nf"
 include { genomicsDBImport }                                   from "./genomicsDB.nf"
 include { genomicsDBImport_PON }                               from "./genomicsDB.nf"
 include { genomicsDBImport_Somatic }                           from "./genomicsDB.nf"
@@ -34,9 +34,9 @@ include { extractSomaticCandidates }                           from "./somaticCa
 include { normalizeSomaticCandidates }                         from "./somaticCandidates.nf"
 include { mergeSomaticCandidates }                             from "./somaticCandidates.nf"
 include { finalizeSomaticCandidates }                          from "./somaticCandidates.nf"
-include { callSomaticVariants }                                from "./somaticCalling.nf"
-include { callSomaticVariants as callSomaticVariantsOnNormal } from "./somaticCalling.nf"
-include { recallGermlineVariants }                             from "./somaticCalling.nf"
+include { callSomaticVariants }                                from "./finalVariantCalling.nf"
+include { callSomaticVariants as callSomaticVariantsOnNormal } from "./finalVariantCalling.nf"
+include { recallGermlineVariants }                             from "./finalVariantCalling.nf"
 
 
 process getPileupSummaries {
@@ -117,7 +117,7 @@ process concatFilteredCalls {
     path("*.concatenated.vcf.gz"), emit: vcf
     path("*.concatenated.vcf.gz.tbi"), emit: tbi
 
-    publishDir "${params.outdir}/Filtered/Samples", mode: 'symlink', pattern: '*.concatenated.vcf.gz*'
+    publishDir "${params.outdir}/Filtered/Samples", mode: 'copy', pattern: '*.concatenated.vcf.gz*'
 
     script:
     """
@@ -142,7 +142,7 @@ process concatSecondHaplotypeCallerCalls {
     path("*.concatenated.vcf.gz"), emit: vcf
     path("*.concatenated.vcf.gz.tbi"), emit: tbi
 
-    publishDir "${params.outdir}/SecondHaplotypeCallerCalls/Samples", mode: 'symlink', pattern: '*.concatenated.vcf.gz*'
+    publishDir "${params.outdir}/SecondHaplotypeCallerCalls/Samples", mode: 'copy', pattern: '*.concatenated.vcf.gz*'
 
     script:
     """
@@ -163,7 +163,7 @@ process mergeFilteredCalls {
     output:
     path("Final.vcf.gz*")
 
-    publishDir "${params.outdir}/Filtered", mode: 'symlink', pattern: 'Final.vcf.gz*'
+    publishDir "${params.outdir}/Filtered", mode: 'copy', pattern: 'Final.vcf.gz*'
     
     script:
     """

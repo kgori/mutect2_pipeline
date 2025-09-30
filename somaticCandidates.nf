@@ -6,7 +6,7 @@ process extractSomaticCandidates {
     tuple val(interval_id), path(reference), path("${interval_id}.somatic_candidates_raw.vcf.gz"),
         path("${interval_id}.somatic_candidates_raw.vcf.gz.tbi")
 
-    publishDir "${params.outdir}/SomaticCandidates/GATK", mode: 'symlink'
+    publishDir "${params.outdir}/SomaticCandidates/GATK", mode: 'copy'
 
     script:
     """
@@ -26,7 +26,7 @@ process normalizeSomaticCandidates {
     tuple path("${interval_id}.somatic_candidates.vcf.gz"),
         path("${interval_id}.somatic_candidates.vcf.gz.tbi")
 
-    publishDir "${params.outdir}/SomaticCandidates/GATK", mode: 'symlink'
+    publishDir "${params.outdir}/SomaticCandidates/GATK", mode: 'copy'
     script:
     """
     bcftools norm -m -both -f ${reference[0]} ${vcf} \
@@ -45,7 +45,7 @@ process mergeSomaticCandidates {
     output:
     path("somatic_candidates.vcf.gz*")
 
-    publishDir "${params.outdir}/SomaticCandidates/GATK", mode: 'symlink'
+    publishDir "${params.outdir}/SomaticCandidates/GATK", mode: 'copy'
 
     script:
     """
@@ -65,7 +65,7 @@ process bcftoolsNormalizeSomaticCandidates {
         path("${vcf.getBaseName(2)}.norm.vcf.gz.tbi"),
         path(stats)
 
-    publishDir "${params.outdir}/SomaticCandidates/Bcftools", mode: 'symlink'
+    publishDir "${params.outdir}/SomaticCandidates/Bcftools", mode: 'copy'
 
     script:
     """
@@ -84,7 +84,7 @@ process bcftoolsMergeSomaticCandidatesByInterval {
     tuple path("${interval_id}.somatic_candidates.vcf.gz"),
         path("${interval_id}.somatic_candidates.vcf.gz.tbi")
 
-    publishDir "${params.outdir}/SomaticCandidates/Bcftools", mode: 'symlink'
+    publishDir "${params.outdir}/SomaticCandidates/Bcftools", mode: 'copy'
 
     script:
     """
@@ -102,7 +102,7 @@ process bcftoolsConcatSomaticCandidates {
     output:
     path("bcftoolsSomaticCandidates.vcf.gz*")
 
-    publishDir "${params.outdir}/SomaticCandidates/BcfTools", mode: 'symlink'
+    publishDir "${params.outdir}/SomaticCandidates/BcfTools", mode: 'copy'
 
     script:
     """
@@ -120,7 +120,7 @@ process finalizeSomaticCandidates {
     output:
     tuple path(germline_resource), path(panel_of_normals), path("candidates.vcf.gz*")
 
-    publishDir "${params.outdir}/SomaticCandidates/Final", mode: 'symlink', pattern: '*.vcf.gz*'
+    publishDir "${params.outdir}/SomaticCandidates/Final", mode: 'copy', pattern: '*.vcf.gz*'
 
     script:
     """

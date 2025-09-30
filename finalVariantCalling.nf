@@ -1,6 +1,6 @@
 process callSomaticVariants {
     cpus 4
-    memory '8 GB'
+    memory { 10.GB + 4.GB * (task.attempt - 1) }
     time '12h'
     queue 'normal'
     executor 'lsf'
@@ -25,7 +25,7 @@ process callSomaticVariants {
         emit: vcfs
     tuple val(sample), path("*.f1r2.tar.gz*"), emit: f1r2s
 
-    publishDir "${params.outdir}/SecondTumourCalls", mode: 'symlink', pattern: '*gz*'
+    publishDir "${params.outdir}/SecondTumourCalls", mode: 'copy', pattern: '*gz*'
     script:
     """
     # Restrict candidate set to the current interval
@@ -54,7 +54,7 @@ process callSomaticVariants {
 
 process recallGermlineVariants {
     cpus 4
-    memory '8 GB'
+    memory { 10.GB + 4.GB * (task.attempt - 1) }
     time '12h'
     queue 'normal'
     executor 'lsf'
@@ -77,7 +77,7 @@ process recallGermlineVariants {
         path(intervals),
         emit: vcfs
 
-    publishDir "${params.outdir}/SecondHaplotypeCallerCalls", mode: 'symlink', pattern: '*gz*'
+    publishDir "${params.outdir}/SecondHaplotypeCallerCalls", mode: 'copy', pattern: '*gz*'
     script:
     """
     # Restrict candidate set to the current interval
