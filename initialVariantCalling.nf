@@ -1,6 +1,8 @@
 process runMutectOnNormal {
     cpus 4
-    memory '8 GB'
+    memory { 8.GB + 4.GB * (task.attempt - 1) }
+    errorStrategy 'retry'
+    maxRetries 3
     time '12h'
     queue 'normal'
     executor 'lsf'
@@ -32,7 +34,9 @@ process runMutectOnNormal {
 
 process runMutectOnTumour {
     cpus 4
-    memory '8 GB'
+    memory { 8.GB + 4.GB * (task.attempt - 1) }
+    errorStrategy 'retry'
+    maxRetries 3
     time '12h'
     queue 'normal'
     executor 'lsf'
@@ -65,7 +69,9 @@ process runMutectOnTumour {
 
 process runHaplotypeCallerOnNormal {
     cpus 4
-    memory '8 GB'
+    memory { 8.GB + 4.GB * (task.attempt - 1) }
+    errorStrategy 'retry'
+    maxRetries 3
     time '12h'
     queue 'normal'
     executor 'lsf'

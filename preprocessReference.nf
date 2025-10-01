@@ -1,21 +1,24 @@
 process splitIntervals {
-  input:
-  path(reference)
-  val(numIntervals)
+    input:
+    path(reference)
+    val(numIntervals)
 
-  output:
-  path("Intervals/*.interval_list")
+    output:
+    path("Intervals/*.interval_list")
 
-  publishDir "${params.outdir}", mode: 'copy'
+    publishDir "${params.outdir}", mode: 'copy'
 
-  script:
-  """
-  gatk SplitIntervals \
-    --reference "${reference[0]}" \
-    --scatter-count $numIntervals \
-    --intervals 38 \
-    --output Intervals
-  """
+    script:
+    """
+    touch intervals.list
+    for i in {4..7}; do echo "\${i}" >> intervals.list; done
+      
+    gatk SplitIntervals \
+      --reference "${reference[0]}" \
+      --scatter-count $numIntervals \
+      --intervals intervals.list \
+      --output Intervals
+    """
 }
 
 process indexReference {

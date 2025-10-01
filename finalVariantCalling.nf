@@ -1,6 +1,8 @@
 process callSomaticVariants {
     cpus 4
-    memory { 10.GB + 4.GB * (task.attempt - 1) }
+    memory { 12.GB + 4.GB * (task.attempt - 1) }
+    errorStrategy 'retry'
+    maxRetries 3
     time '12h'
     queue 'normal'
     executor 'lsf'
@@ -54,7 +56,9 @@ process callSomaticVariants {
 
 process recallGermlineVariants {
     cpus 4
-    memory { 10.GB + 4.GB * (task.attempt - 1) }
+    memory { 12.GB + 4.GB * (task.attempt - 1) }
+    errorStrategy 'retry'
+    maxRetries 3
     time '12h'
     queue 'normal'
     executor 'lsf'

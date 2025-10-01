@@ -5,7 +5,7 @@ process genomicsDBImport {
     output:
     tuple val(interval_id), path("resourceDB")
 
-    publishDir "${params.outdir}/GenomicsDB/GermlineResource", mode: 'copy'
+    publishDir "${params.outdir}/GenomicsDB/GermlineResource", mode: 'link'
 
     script:
     """
@@ -26,7 +26,7 @@ process genomicsDBImport_PON {
     output:
     tuple val(interval_id), path("ponDB")
 
-    publishDir "${params.outdir}/GenomicsDB/PanelOfNormals", mode: 'copy'
+    publishDir "${params.outdir}/GenomicsDB/PanelOfNormals", mode: 'link'
 
     script:
     """
@@ -47,7 +47,7 @@ process genomicsDBImport_Somatic {
     output:
     tuple val(interval_id), path("somaticDB")
     
-    publishDir "${params.outdir}/GenomicsDB/SomaticCandidates", mode: 'copy'
+    publishDir "${params.outdir}/GenomicsDB/SomaticCandidates", mode: 'link'
 
     script:
     """
