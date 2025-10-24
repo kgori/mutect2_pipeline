@@ -14,6 +14,8 @@ process getPileupSummaries {
     output:
     tuple val(sample), path("${sample}.pileups")
 
+    publishDir "${params.outdir}/PileupSummaries", mode: 'copy', pattern: '*pileups'
+
     script:
     """
     gatk GetPileupSummaries \
@@ -39,6 +41,8 @@ process calculateContamination {
 
     output:
     tuple val(sample), path("${sample}.contamination.table")
+
+    publishDir "${params.outdir}/ContaminationTables", mode: 'copy', pattern: '*table'
 
     script:
     """
