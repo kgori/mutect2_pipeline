@@ -31,26 +31,32 @@ process callSomaticVariants {
     script:
     """
     # Restrict candidate set to the current interval
-    gatk SelectVariants \
-        --reference ${reference[0]} \
-        --variant ${candidates[0]} \
-        --intervals ${intervals} \
-        --output candidates.subset.vcf.gz
+    bcftools view -R <(grep -v "^@" ${intervals}) \
+        -Oz -o candidates.subset.vcf.gz -W=tbi ${candidates[0]}
 
-    # Call somatic variants with a tight focus on the candidate positions
+    # Call somatic variants. Use the candidates file as the intervals to reduce the
+    # amount of new calls made by mutect
     gatk Mutect2 \
         --reference ${reference[0]} \
         --input ${bam[0]} \
         --germline-resource ${germline_resource[0]} \
         --panel-of-normals ${panel_of_normals[0]} \
         --alleles candidates.subset.vcf.gz \
-        --force-call-filtered-alleles \
         --f1r2-tar-gz ${interval_id}.${sample}.f1r2.tar.gz \
-        --output ${interval_id}.${sample}.unfiltered.vcf.gz \
         --intervals candidates.subset.vcf.gz \
         --native-pair-hmm-threads ${task.cpus} \
         --max-mnp-distance 0 \
-        --assembly-region-padding 300
+        --assembly-region-padding 300 \
+        --force-call-filtered-alleles \
+        --genotype-germline-sites \
+        --genotype-pon-sites \
+        --output ${interval_id}.${sample}.unfiltered.vcf.gz
+
+    # Any missing candidates?
+    normalize_mutect2_vcf.py ${interval_id}.${sample}.unfiltered.vcf.gz \
+        | bcftools norm -f ${reference[0]} -Oz -o ${interval_id}.${sample}.unfiltered.norm.vcf.gz -W=tbi
+    bcftools isec -C -w1 -Oz -o ${interval_id}.${sample}.missing_candidates.vcf.gz -W=tbi \
+        candidates.subset.vcf.gz ${interval_id}.${sample}.unfiltered.norm.vcf.gz
     """
 }
 
