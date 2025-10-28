@@ -14,7 +14,7 @@ def number_g_indexes(allele_index: int):
     i = 0
     j = (allele_index * (allele_index + 1)) // 2
     k = j + allele_index
-    return i, j, k 
+    return i, j, k
 
 def split_number_g_field(array: tuple[int | float, ...], allele_index: int, total_alleles: int):
     """ Number=G fields have entries for all possible genotypes.
@@ -29,14 +29,14 @@ def split_number_g_field(array: tuple[int | float, ...], allele_index: int, tota
     assert 0 < allele_index < total_alleles
     i, j, k = number_g_indexes(allele_index)
     return array[i], array[j], array[k]
-    
+
 def split_number_r_field(array: tuple[int | float, ...], allele_index: int):
     """ Number=R fields have entries for all alleles, including the
     reference allele.
     allele_index is the index of the allele being extracted (0 is the
     reference allele).
     """
-    assert 0 < allele_index < len(array) 
+    assert 0 < allele_index < len(array)
     return array[0], array[allele_index]
 
 def split_number_a_field(array: tuple[int | float, ...], allele_index: int):
@@ -44,13 +44,19 @@ def split_number_a_field(array: tuple[int | float, ...], allele_index: int):
     allele_index is the index of the allele being extracted (0 is the
     reference allele).
     """
-    assert 0 < allele_index <= len(array) 
+    assert 0 < allele_index <= len(array)
     return array[allele_index - 1]
 
 @dataclass
 class ASFilterStatus:
     INFO: str
     FILTERKEYS: tuple[str, ...]
+
+@dataclass
+class Fields:
+    info_fields: dict[str, str|int]
+    format_fields: dict[str, str|int]
+    filter_fields: dict[str, str|int]
 
 def split_as_filter_status(array: tuple[str, ...], allele_index: int, site_flags: VariantRecordFilter):
     """ AS_FilterStatus is a GATK-specific field that is not
@@ -73,7 +79,7 @@ def split_as_filter_status(array: tuple[str, ...], allele_index: int, site_flags
     else:
         as_filter_status = ASFilterStatus(INFO=allele, FILTERKEYS=allele.split(','))
         return as_filter_status
-    
+
 def split_as_sb_table(array: tuple[str, ...], allele_index: int):
     """ AS_SB_TABLE is a GATK-specific field that is not
     standards-compliant. It contains a table of strand-bias
@@ -88,10 +94,14 @@ def split_as_sb_table(array: tuple[str, ...], allele_index: int):
     assert 0 < allele_index < len(alleles)
     return '|'.join((alleles[0], alleles[allele_index]))
 
-def split_multiallelic_record(rec, bcf_out, info_fields, format_fields):
+def split_multiallelic_record(rec, bcf_out, header_fields: Fields):
+    info_fields = header_fields.info_fields
+    format_fields = header_fields.format_fields
+    filter_fields = header_fields.filter_fields
+
     if len(rec.alleles) <= 2:
         return [rec]
-    
+
     records = []
     for ai in range(1, len(rec.alleles)):
         new_rec = bcf_out.new_record(
@@ -120,7 +130,7 @@ def split_multiallelic_record(rec, bcf_out, info_fields, format_fields):
                 new_rec.info[k] = split_number_g_field(v, ai, len(rec.alleles))
             else:
                 new_rec.info[k] = v
-            if k == "PON" and v:
+            if k == "PON" and v and "panel_of_normals" in filter_fields:
                 new_filter_keys.add("panel_of_normals")
 
         for fk in sorted(new_filter_keys):
@@ -128,7 +138,6 @@ def split_multiallelic_record(rec, bcf_out, info_fields, format_fields):
 
         for sample_name, sample_data in rec.samples.items():
             new_sample_data = new_rec.samples[sample_name]
-            alleles = sample_data.alleles
             new_sample_data.alleles = tuple(sample_data.alleles[ai]
                                             if i == ai
                                             else sample_data.alleles[0]
@@ -146,30 +155,33 @@ def split_multiallelic_record(rec, bcf_out, info_fields, format_fields):
                     new_sample_data[k] = split_number_g_field(v, ai, len(rec.alleles))
                 else:
                     new_sample_data[k] = v
-            
+
         records.append(new_rec)
     return records
 
-def get_fields_from_header(bcf_in):
+def get_fields_from_header(bcf_in) -> Fields:
     """ Get the INFO and FORMAT fields from the header and return
     what kind of "Number" format they are (R, A, G, <scalar>, etc)
     """
     info_fields = {}
     format_fields = {}
+    filter_fields = {}
     for key, metadata in bcf_in.header.info.items():
         info_fields[key] = metadata.number
     for key, metadata in bcf_in.header.formats.items():
         format_fields[key] = metadata.number
-    return info_fields, format_fields
+    for key, metadata in bcf_in.header.filters.items():
+        filter_fields[key] = metadata.description
+    return Fields(info_fields, format_fields, filter_fields)
 
 def split_multiallelics(input_vcf: str):
     bcf_in = pysam.VariantFile(input_vcf, "r")
     header = bcf_in.header.copy()
     header.add_meta("split_multiallelic", value="normalise_mutect2_vcf.py")
     bcf_out = pysam.VariantFile("-", "w", header=header)
-    info_fields, format_fields = get_fields_from_header(bcf_in)
+    header_fields = get_fields_from_header(bcf_in)
     for rec in bcf_in:
-        split_recs = split_multiallelic_record(rec, bcf_out, info_fields, format_fields)
+        split_recs = split_multiallelic_record(rec, bcf_out, header_fields)
         for split_rec in split_recs:
             bcf_out.write(split_rec)
 
