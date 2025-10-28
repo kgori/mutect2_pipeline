@@ -50,8 +50,14 @@ process mergeSomaticCandidates {
     script:
     """
     bcftools concat -a -D ${candidate_vcfs.join(' ')} \
-        | bcftools sort -Oz -o somatic_candidates.vcf.gz
+        | bcftools sort -Oz -o somatic_candidates_pre_fix.vcf.gz
+
+    # Fix the "tumor_sample" annotation
+    fix_tumor_sample_in_somatic_candidates_vcf_header.py \
+        somatic_candidates_pre_fix.vcf.gz somatic_candidates.vcf.gz
+
     bcftools index -t somatic_candidates.vcf.gz
+    rm somatic_candidates_pre_fix.vcf.gz*
     """
 }
 
