@@ -101,7 +101,7 @@ process mergeFilteredCalls {
     path("Final.vcf.gz*")
 
     publishDir "${params.outdir}/Filtered", mode: 'copy', pattern: 'Final.vcf.gz*'
-    
+
     script:
     """
     bcftools merge \
@@ -129,6 +129,10 @@ process learnReadOrientationModel {
 }
 
 workflow {
+    /////////////////////////////////
+    //         Preanalysis setup
+    //
+
     // Load and process the reference
     ref_ch = Channel.fromPath(params.reference)
     fai_ch = indexReference(ref_ch)
@@ -168,12 +172,30 @@ workflow {
     normal_interval_ch = normals.combine(ivls)
     tumour_interval_ch = tumours.combine(ivls)
 
+
+    ///////////////////////////////////////////////////////
+    //         Stage 1: First round of calling
+    //
+
     // Run Mutect2 on normals
     normals_for_calling_ch = ref_files.combine(normal_interval_ch)
         .map { fa, fai, dict, sample, normal_bam, interval_label, interval ->
             tuple(interval_label, [fa, fai, dict], sample, normal_bam, interval) }
     normals_called_by_mutect_ch = runMutectOnNormal(normals_for_calling_ch)
-    
+
+    // Run Mutect2 on tumours
+    tumours_for_calling_ch = ref_files.combine(tumour_interval_ch)
+        .map { fa, fai, dict, sample, tumour_bam, interval_label, interval ->
+            tuple(interval_label, [fa, fai, dict], sample, tumour_bam, interval) }
+    tumours_first_called_by_mutect_ch = runMutectOnTumour(tumours_for_calling_ch)
+
+    // Run HaplotypeCaller on normals
+    gvcfs_ch = runHaplotypeCallerOnNormal(normals_for_calling_ch)
+
+
+    ///////////////////////////////////////////////////////
+    //         Stage 2: Create panels and candidates
+
     // Collect the PON into a genomeDB
     ponImport_ch = normals_called_by_mutect_ch.groupTuple().combine(ivls, by: 0)
     pon_db = genomicsDBImport_PON(ponImport_ch)
@@ -189,39 +211,20 @@ workflow {
     indices = panel_of_normals_vcfs.map { it -> it[1] }.collect()
     panel_of_normals = mergePonVCFs(vcfs, indices)
 
-    // Run Mutect2 on tumours
-    tumours_for_calling_ch = ref_files.combine(tumour_interval_ch)
-        .map { fa, fai, dict, sample, tumour_bam, interval_label, interval ->
-            tuple(interval_label, [fa, fai, dict], sample, tumour_bam, interval) }
-    tumours_first_called_by_mutect_ch = runMutectOnTumour(tumours_for_calling_ch) 
-
     // Create genomicsDB from the first-round tumour mutect2 calls
     somatic_import_ch = tumours_first_called_by_mutect_ch.groupTuple().combine(ivls, by: 0)
     somatic_db = genomicsDBImport_Somatic(somatic_import_ch)
-
-    // Use bcftools to merge somatic candidates
-    // to_normalize_ch = ref_files.combine(tumours_first_called_by_mutect_ch).map {
-    //     fa, fai, dict, interval_label, vcf, tbi, stats ->
-    //     tuple(interval_label, [fa, fai, dict], vcf, tbi, stats)
-    // }
-    // somatic_norm_vcfs = bcftoolsNormalizeSomaticCandidates(to_normalize_ch)
-    // somatic_merged_vcfs = bcftoolsMergeSomaticCandidatesByInterval(somatic_norm_vcfs.groupTuple())
-    // vcfs = somatic_merged_vcfs.map { it -> it[0] }.collect()
-    // indices = somatic_merged_vcfs.map { it -> it[1] }.collect()
-    // bcftoolsConcatSomaticCandidates(vcfs, indices)
 
     // Extract somatic candidates from DB
     somatic_ch = ref_files.combine(ivls.combine(somatic_db, by: 0))
         .map { fa, fai, dict, interval_label, interval, genomeDB ->
             tuple(interval_label, [fa, fai, dict], interval, genomeDB) }
-    somatic_candidates_by_interval = normalizeSomaticCandidates(extractSomaticCandidates(somatic_ch))
+    somatic_candidates_by_interval = somatic_ch |
+        extractSomaticCandidates |
+        normalizeSomaticCandidates
     candidate_vcfs = somatic_candidates_by_interval.map { it -> it[0] }.collect()
     candidate_indices = somatic_candidates_by_interval.map { it -> it[1] }.collect()
-    somatic_candidates = mergeSomaticCandidates(candidate_vcfs, candidate_indices)                          
-
-    // Run HaplotypeCaller on normals
-    gvcfs_ch = runHaplotypeCallerOnNormal(normals_for_calling_ch)
-
+    somatic_candidates = mergeSomaticCandidates(candidate_vcfs, candidate_indices)
     // Collect the gvcfs into a genomeDB
     dbImport_ch = gvcfs_ch.groupTuple().combine(ivls, by: 0)
     db = genomicsDBImport(dbImport_ch)
@@ -246,8 +249,13 @@ workflow {
         .combine(collated_support_vcfs_ch)
         .map { fa, fai, stats, gr, pon, sc ->
             tuple([fa, fai, stats], gr, pon, sc ) }
-    
+
     candidates = finalizeSomaticCandidates(to_finalize_ch)
+
+
+    ///////////////////////////////////////////////////////
+    //         Stage 3: Final calling and filtering
+    //
 
     // Call somatic variants (round 2 - final calling step before filtering)
     somatic_calling_ch = tumours_for_calling_ch
@@ -268,7 +276,7 @@ workflow {
         .groupTuple(size: params.numIntervals)
         .map { key, files -> tuple(key, files.sort { it.name }) }
     orientation_model = learnReadOrientationModel(orientation_model_ch)
-    
+
     // Build a contamination model
     to_pileup_ch = ref_files.combine(tumours.concat(normals)).combine(germline_resource)
         .map { fa, fai, dict, sample, bam, resource_vcf, resource_index ->
