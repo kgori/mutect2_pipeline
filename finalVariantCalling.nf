@@ -53,7 +53,7 @@ process callSomaticVariants {
         --output ${interval_id}.${sample}.unfiltered.vcf.gz
 
     # Any missing candidates?
-    normalize_mutect2_vcf.py ${interval_id}.${sample}.unfiltered.vcf.gz \
+    split_mutect2_multiallelics.py ${interval_id}.${sample}.unfiltered.vcf.gz \
         | bcftools norm -f ${reference[0]} -Oz -o ${interval_id}.${sample}.unfiltered.norm.vcf.gz -W=tbi
     bcftools isec -C -w1 -Oz -o ${interval_id}.${sample}.missing_candidates.vcf.gz -W=tbi \
         candidates.subset.vcf.gz ${interval_id}.${sample}.unfiltered.norm.vcf.gz

@@ -60,7 +60,7 @@ process concatFilteredCalls {
     """
     bcftools concat *.vcf.gz \
         | bcftools sort \
-        | normalise_mutect2_vcf.py - \
+        | split_mutect2_multiallelics.py - \
         | bcftools norm -f ${reference[0]} \
             -Oz -o "${sample}.concatenated.vcf.gz"
     bcftools index -t "${sample}.concatenated.vcf.gz"
