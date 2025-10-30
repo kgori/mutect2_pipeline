@@ -225,6 +225,7 @@ workflow {
     candidate_vcfs = somatic_candidates_by_interval.map { it -> it[0] }.collect()
     candidate_indices = somatic_candidates_by_interval.map { it -> it[1] }.collect()
     somatic_candidates = mergeSomaticCandidates(candidate_vcfs, candidate_indices)
+
     // Collect the gvcfs into a genomeDB
     dbImport_ch = gvcfs_ch.groupTuple().combine(ivls, by: 0)
     db = genomicsDBImport(dbImport_ch)

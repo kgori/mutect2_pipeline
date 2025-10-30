@@ -39,7 +39,6 @@ process callSomaticVariants {
     gatk Mutect2 \
         --reference ${reference[0]} \
         --input ${bam[0]} \
-        --germline-resource ${germline_resource[0]} \
         --panel-of-normals ${panel_of_normals[0]} \
         --alleles candidates.subset.vcf.gz \
         --f1r2-tar-gz ${interval_id}.${sample}.f1r2.tar.gz \
@@ -102,7 +101,6 @@ process recallGermlineVariants {
         --reference ${reference[0]} \
         --input ${bam[0]} \
         --alleles candidates.subset.vcf.gz \
-        --population-callset ${germline_resource[0]} \
         --force-call-filtered-alleles \
         --output ${interval_id}.${sample}.haplotypeCaller.vcf.gz \
         --intervals candidates.subset.vcf.gz \
