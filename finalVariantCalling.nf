@@ -26,6 +26,7 @@ process callSomaticVariants {
         path(intervals),
         emit: vcfs
     tuple val(sample), path("*.f1r2.tar.gz*"), emit: f1r2s
+    tuple val(sample), path("${interval_id}.${sample}.missing_candidates.vcf.gz"), emit: missing_candidates
 
     publishDir "${params.outdir}/SecondTumourCalls", mode: 'copy', pattern: '*gz*'
     script:
