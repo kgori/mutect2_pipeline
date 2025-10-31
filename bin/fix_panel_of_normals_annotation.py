@@ -64,7 +64,7 @@ def get_pon_variants(pon_vcf: str, reference_fasta: str) -> frozenset[Variant]:
 
 def check_vcf(vcf, outfile, pon_set: set[Variant]):
     print("Checking VCF for Panel of Normals annotations", file=sys.stderr)
-    write_mode = 'wb'
+    write_mode = 'wz'
     if vcf == "-":
         print("Reading VCF from standard input", file=sys.stderr)
     if outfile == "-":
