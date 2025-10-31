@@ -7,6 +7,18 @@ import signal
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 
+@dataclass
+class ASFilterStatus:
+    INFO: str
+    FILTERKEYS: tuple[str, ...]
+
+@dataclass
+class Fields:
+    info_fields: dict[str, str|int]
+    format_fields: dict[str, str|int]
+    filter_fields: dict[str, str|int]
+
+
 def number_g_indexes(allele_index: int):
     """ Return the indexes required to extract the 'allele_index'th
     allele from a Number=G field.
@@ -46,17 +58,6 @@ def split_number_a_field(array: tuple[int | float, ...], allele_index: int):
     """
     assert 0 < allele_index <= len(array)
     return array[allele_index - 1]
-
-@dataclass
-class ASFilterStatus:
-    INFO: str
-    FILTERKEYS: tuple[str, ...]
-
-@dataclass
-class Fields:
-    info_fields: dict[str, str|int]
-    format_fields: dict[str, str|int]
-    filter_fields: dict[str, str|int]
 
 def split_as_filter_status(array: tuple[str, ...], allele_index: int, site_flags: VariantRecordFilter):
     """ AS_FilterStatus is a GATK-specific field that is not
