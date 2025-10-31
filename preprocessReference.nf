@@ -2,6 +2,7 @@ process splitIntervals {
     input:
     path(reference)
     val(numIntervals)
+    path(intervals)
 
     output:
     path("Intervals/*.interval_list")
@@ -9,16 +10,14 @@ process splitIntervals {
     publishDir "${params.outdir}", mode: 'copy'
 
     script:
+    def intervalsArg = intervals.name == "NO_FILE" ? "" : "--intervals ${intervals}"
     """
-    touch intervals.list
-    for i in {4..7}; do echo "\${i}" >> intervals.list; done
-      
     gatk SplitIntervals \
-      --reference "${reference[0]}" \
-      --scatter-count $numIntervals \
-      --intervals intervals.list \
-      --output Intervals
-    """
+        --reference "${reference[0]}" \
+        --scatter-count $numIntervals \
+        ${intervalsArg} \
+        --output Intervals
+        """
 }
 
 process indexReference {

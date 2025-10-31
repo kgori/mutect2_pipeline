@@ -5,6 +5,7 @@ params.normals      = "normals_folder"
 params.tumours      = "tumours_folder"
 params.outdir       = "results"
 params.numIntervals = 8
+params.intervals    = "$projectDir/NO_FILE"
 
 def remove_duplicate_filepair_keys(primary_ch, secondary_ch) {
     // primary_ch and secondary_ch are channels produced by
@@ -143,7 +144,8 @@ workflow {
     ref_files = ref_ch.merge(fai_ch).merge(dict_ch)
 
     // Chop into intervals for scattering-gathering
-    ivls = splitIntervals(ref_files, params.numIntervals).flatten()
+    intervals_ch = Channel.fromPath(params.intervals)
+    ivls = splitIntervals(ref_files, params.numIntervals, intervals_ch).flatten()
         .map { interval ->
             def intervalNumberMatch = interval.getName() =~ /^(\d+)/
                 def intervalNumber = intervalNumberMatch ? intervalNumberMatch[0][1] : 99999
