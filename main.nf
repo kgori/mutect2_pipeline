@@ -46,6 +46,7 @@ process concatFilteredCalls {
     input:
     tuple val(sample),
         path(reference),
+        path(pon),
         path(vcfs),
         path(tbis)
 
@@ -58,11 +59,14 @@ process concatFilteredCalls {
 
     script:
     """
-    bcftools concat *.vcf.gz \
+    bcftools concat *.filtered.vcf.gz \
         | bcftools sort \
         | split_mutect2_multiallelics.py - \
         | bcftools norm -f ${reference[0]} \
-            -Oz -o "${sample}.concatenated.vcf.gz"
+        | fix_panel_of_normals_annotation.py  \
+            --reference-fasta ${reference[0]} \
+            --pon-vcf ${pon[0]} \
+            -o "${sample}.concatenated.vcf.gz" -
     bcftools index -t "${sample}.concatenated.vcf.gz"
     """
 }
@@ -75,7 +79,6 @@ process concatSecondHaplotypeCallerCalls {
         path(tbis)
 
     output:
-    path(reference), emit: ref
     path("*.concatenated.vcf.gz"), emit: vcf
     path("*.concatenated.vcf.gz.tbi"), emit: tbi
 
@@ -300,8 +303,11 @@ workflow {
     grouped_with_ref = ref_files.combine(grouped)
         .map { fa, fai, dict, sample, vcfs, tbis ->
             tuple(sample, [fa, fai, dict], vcfs, tbis) }
-    concat = concatFilteredCalls(grouped_with_ref)
-    mergeFilteredCalls(concat.ref, concat.vcf.collect(), concat.tbi.collect())
+    grouped_with_pon = panel_of_normals.combine(grouped_with_ref)
+        .map { pon_vcf, pon_tbi, sample, ref, vcfs, tbis ->
+            tuple(sample, ref, [pon_vcf, pon_tbi], vcfs, tbis) }
+    concat = concatFilteredCalls(grouped_with_pon)
+    // mergeFilteredCalls(ref_files, concat.vcf.collect(), concat.tbi.collect())
 
     // And the normals
     grouped_rehaplotyped = rehaplotyped_normals
