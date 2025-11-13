@@ -2,7 +2,7 @@ Bootstrap: docker
 From: broadinstitute/gatk:4.6.2.0
 
 %help
-    GATK 4.6.2.0 with updated bcftools 1.22 and vt
+    GATK 4.6.2.0 with updated bcftools 1.22 and bwa-mem2
 
 %post
     apt-get update && apt-get install -y \
@@ -18,6 +18,8 @@ From: broadinstitute/gatk:4.6.2.0
     cd /opt && \
     git clone --recurse-submodules --branch 1.22 https://github.com/samtools/htslib.git
     git clone --recurse-submodules --branch 1.22 https://github.com/samtools/bcftools.git
+    git clone --recurse-submodules --branch v2.3 https://github.com/bwa-mem2/bwa-mem2.git
+
     cd /opt/htslib && \
     autoreconf -i && \
     CC=/usr/bin/gcc CXX=/usr/bin/g++ ./configure --prefix=/ --enable-libcurl
@@ -28,14 +30,8 @@ From: broadinstitute/gatk:4.6.2.0
     CC=/usr/bin/gcc CXX=/usr/bin/g++ ./configure --prefix=/
     make && make install
 
-    rm -rf /opt/htslib /opt/bcftools
+    cd /opt/bwa-mem2 && \
+    CC=/usr/bin/gcc CXX=/usr/bin/g++ make && \
+    mv bwa-mem2* /usr/bin
 
-    cd /opt && \
-    git clone https://github.com/atks/vt.git && \
-    cd /opt/vt && \
-    git checkout 6b31b44 && \
-    git submodule update --init --recursive && \
-    PATH=/usr/bin:$PATH make && mv vt /bin
-
-    rm -rf /opt/vt
-
+    rm -rf /opt/htslib /opt/bcftools /opt/bwa-mem2
