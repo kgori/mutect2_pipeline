@@ -1,6 +1,4 @@
 #!/bin/bash
-set -o pipefail
-
 Help() {
   echo -e "\033[1;4;37mRealign Reads Script\033[0m"
   echo ""
@@ -25,7 +23,7 @@ WRITE_INDEX=0
 OUT=""
 
 # Getopt
-ARGS=$(getopt -o o:O:t:h --long output:,output-format:,threads:,dry-run,write-index,help -n '$0' -- "$@")
+ARGS=$(getopt -o o:O:t:h --long output:,output-format:,threads:,dry-run,write-index,help -n "$0" -- "$@")
 if [ $? -ne 0 ]; then
     Help
     exit 1
@@ -176,26 +174,69 @@ echo -e "Total threads:    \033[1;34m$THREADS \033[34m(Align: $ALIGN_THREADS, So
 CMD="samtools collate -Oun128 -T ${TMPDIR}/collate ${BAM} \
     | samtools fastq -OT RG,BC - \
     | ${BWA} mem -p -Y -K 100000000 -t ${ALIGN_THREADS} -CH <(samtools view -H ${BAM} | grep ^@RG) ${REF} - \
-    | samtools sort -n -@ ${SORT_THREADS} -T ${TMPDIR}/namesort -o - \
+    | samtools sort -n -m 2G -@ ${SORT_THREADS} -T ${TMPDIR}/namesort -o - \
     | samtools fixmate -m - - \
-    | samtools sort -@ ${SORT_THREADS} -T ${TMPDIR}/possort -o - \
+    | samtools sort -m 2G -@ ${SORT_THREADS} -T ${TMPDIR}/possort -o - \
     | samtools markdup -@ ${SORT_THREADS} -T ${TMPDIR}/markdup ${FMT} - ${OUT}"
-
-if [ "$WRITE_INDEX" -eq 1 ]; then
-  CMD="$CMD && samtools index ${OUT}"
-fi
 
 if [ $DRY_RUN -eq 1 ]; then
   echo ""
   echo -e "\033[1;31m**Dry run mode. The following command would be executed:**\033[0m" >&2
   echo "$CMD" >&2
+  if [ "$WRITE_INDEX" -eq 1 ]; then
+      echo "samtools index ${OUT}" >&2
+  fi
   exit 0
 else
   echo -e "\033[1;33mExecuting realignment command\n${CMD}\033[0m" >&2
+
   eval "$CMD"
+
+  if [ $? -ne 0 ]; then
+    echo -e "\033[1;31mError: Realignment command failed\033[0m" >&2
+    exit 1
+  fi
+
+  # Write the index and check it was created
+  if [ "$WRITE_INDEX" -eq 1 ]; then
+    samtools index "${OUT}"
+    if [ $? -ne 0 ]; then
+      echo -e "\033[1;31mError: Failed to write index for output file '${OUT}'\033[0m" >&2
+      exit 1
+    fi
+
+    index_exists() {
+      local f=$1
+      [[ -f ${f}.bai || -f ${f}.csi || -f ${f}.crai ]]
+    }
+
+    if ! index_exists "${OUT}"; then
+      echo -e "\033[1;31mError: Index file for output '${OUT}' was not created!\033[0m" >&2
+      exit 1
+    fi
+  fi
+
+  # Check we produced some output
   [ -s "$OUT" ] || { echo -e "\033[1;31mError: Output file '$OUT' is empty!\033[0m" >&2; exit 1; }
+
+  # Check output file integrity
   samtools quickcheck "$OUT" || { echo -e "\033[1;31mError: Output file '$OUT' is corrupted or incomplete!\033[0m" >&2; exit 1; }
-  echo -e "\033[1;32mRealignment completed successfully. Output written to '$OUT'.\033[0m" >&2
+
+  # Check the output contains any reads
+  OUT_READS=$(samtools view -c -F 0x900 "$OUT")
+  (( OUT_READS > 0 )) || {
+    echo -e "\033[1;31mError: No reads found in output file '$OUT'!\033[0m" >&2
+    exit 1
+  }
+
+  # Check we aligned the same number of reads as input
+  IN_READS=$(samtools view -c -F 0x900 "$BAM")
+  (( OUT_READS == IN_READS )) || {
+    echo -e "\033[1;31mError: Mismatch in read counts! Input BAM has $IN_READS reads, but output has $OUT_READS reads.\033[0m" >&2
+    exit 1
+  }
+
+  # All looks good
+  echo -e "\033[1;32mRealignment completed successfully. ${OUT_READS} were realigned. Output written to '$OUT'.\033[0m" >&2
   exit 0
 fi
-
