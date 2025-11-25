@@ -1,23 +1,31 @@
 process splitIntervals {
     input:
     path(reference)
-    val(numIntervals)
+    val(fineNum)
+    val(coarseNum)
     path(intervals)
 
     output:
-    path("Intervals/*.interval_list")
+    path("FineIntervals/*.interval_list"), emit: fineIntervals
+    path("CoarseIntervals/*.interval_list"), emit: coarseIntervals
 
-    publishDir "${params.outdir}", mode: 'copy'
+    publishDir "${params.outdir}/Intervals", mode: 'copy'
 
     script:
     def intervalsArg = intervals.name == "NO_FILE" ? "" : "--intervals ${intervals}"
     """
     gatk SplitIntervals \
         --reference "${reference[0]}" \
-        --scatter-count $numIntervals \
+        --scatter-count $fineNum \
         ${intervalsArg} \
-        --output Intervals
-        """
+        --output FineIntervals
+
+    gatk SplitIntervals \
+        --reference "${reference[0]}" \
+        --scatter-count $coarseNum \
+        ${intervalsArg} \
+        --output CoarseIntervals
+    """
 }
 
 process indexReference {
