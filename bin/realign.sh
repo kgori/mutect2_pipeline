@@ -2,7 +2,7 @@
 Help() {
   echo -e "\033[1;4;37mRealign Reads Script\033[0m"
   echo ""
-  echo -e " Usage: \033[1m$(basename $0)\033[0m [\033[36moptions\033[0m] \033[32m<input.bam> <reference.fa>\033[0m"
+  echo -e " Usage: \033[1m$(basename "$0")\033[0m [\033[36moptions\033[0m] \033[32m<input.bam> <reference.fa>\033[0m"
   echo
   echo " Realign reads in the input BAM file to the reference genome using BWA-MEM2 or BWA."
   echo
@@ -88,6 +88,17 @@ if [ ! -e "$REF" ]; then
   exit 1
 fi
 
+# Normalise paths if `realpath' is available
+if command -v realpath >/dev/null 2>&1; then
+    BAM=$(realpath "$BAM")
+    REF=$(realpath "$REF")
+    if [ -n "$OUT" ]; then
+        OUTDIR=$(dirname "$OUT")
+        OUTFILE=$(basename "$OUT")
+        OUT=$(realpath "$OUTDIR")/"$OUTFILE"
+    fi
+fi
+
 # Check which programs are available, bwa-mem2 or bwa?
 HAVE_BWA2=$(command -v bwa-mem2)
 HAVE_BWA=$(command -v bwa)
@@ -123,7 +134,7 @@ if ! [[ $THREADS =~ $re ]] ; then
   exit 1
 fi
 
-if [ $THREADS -lt 1 ]; then
+if [ "$THREADS" -lt 1 ]; then
   echo -e "\033[1;31mError: Number of threads must be at least 1\033[0m" >&2
   exit 1
 fi
@@ -155,10 +166,10 @@ if [ $SORT_THREADS -lt 1 ]; then
 fi
 
 # All options are valid, so make a temporary directory
-TMPDIR="$(mktemp -d -t realign_tmp_XXXXXX)"
+JOBTMP="$(mktemp -d -t realign_tmp_XXXXXX -p ${TMPDIR:-/tmp})"
 
 cleanup() {
-  rm -rf "$TMPDIR"
+  rm -rf "$JOBTMP"
 }
 
 trap 'exit_code=$?; cleanup; exit $exit_code' EXIT
@@ -171,13 +182,13 @@ echo -e "Output file:      \033[1;34m$OUT\033[0m" >&2
 echo -e "Output format:    \033[1;34m$OUTPUT_FORMAT\033[0m" >&2
 echo -e "Total threads:    \033[1;34m$THREADS \033[34m(Align: $ALIGN_THREADS, Sort: $SORT_THREADS)\033[0m" >&2
 
-CMD="samtools collate -Oun128 -T ${TMPDIR}/collate ${BAM} \
+CMD="samtools collate -f -O -u -r 100000 -T ${JOBTMP}/collate ${BAM} \
     | samtools fastq -OT RG,BC - \
     | ${BWA} mem -p -Y -K 100000000 -t ${ALIGN_THREADS} -CH <(samtools view -H ${BAM} | grep ^@RG) ${REF} - \
-    | samtools sort -n -m 2G -@ ${SORT_THREADS} -T ${TMPDIR}/namesort -o - \
+    | samtools sort -n -m 1G -@ ${SORT_THREADS} -T ${JOBTMP}/namesort -o - \
     | samtools fixmate -m - - \
-    | samtools sort -m 2G -@ ${SORT_THREADS} -T ${TMPDIR}/possort -o - \
-    | samtools markdup -@ ${SORT_THREADS} -T ${TMPDIR}/markdup ${FMT} - ${OUT}"
+    | samtools sort -m 1G -@ ${SORT_THREADS} -T ${JOBTMP}/possort -o - \
+    | samtools markdup -@ ${SORT_THREADS} -T ${JOBTMP}/markdup ${FMT} - ${OUT}"
 
 if [ $DRY_RUN -eq 1 ]; then
   echo ""
@@ -190,7 +201,11 @@ if [ $DRY_RUN -eq 1 ]; then
 else
   echo -e "\033[1;33mExecuting realignment command\n${CMD}\033[0m" >&2
 
-  eval "$CMD"
+  echo "$CMD" > "${JOBTMP}/realign_command.sh"
+  (
+      set -euo pipefail
+      bash "${JOBTMP}/realign_command.sh"
+  )
 
   if [ $? -ne 0 ]; then
     echo -e "\033[1;31mError: Realignment command failed\033[0m" >&2
