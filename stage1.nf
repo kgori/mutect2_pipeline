@@ -167,7 +167,7 @@ workflow {
         .map { fa, fai, dict, sample, tumour_bam, interval_label, interval ->
             tuple(interval_label, [fa, fai, dict], sample, tumour_bam, interval) }
     
-    alt_calling_ch = normals_for_alt_calling_ch.concat(tumours_for_alt_calling_ch)
+    alt_calling_ch = normals_for_alt_calling_ch.mix(tumours_for_alt_calling_ch)
 
     // Run platypus on normals and tumours
     platypus_calls_ch = runPlatypus(alt_calling_ch) // Channel: sample, vcf, tbi
