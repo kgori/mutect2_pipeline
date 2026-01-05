@@ -126,8 +126,13 @@ process runPlatypus {
         --bamFiles=${bam[0]} \
         --refFile=${reference[0]} \
         --output=${sample}.${interval_id}.platypus.vcf \
+        --minFlank=0 \
         --nCPU=${task.cpus} \
         --logFile=${sample}.${interval_id}.platypus.log
+    cat ${sample}.${interval_id}.platypus.vcf \
+        | sed 's/##FORMAT=<ID=NR,Number=\\.,Type=Integer/##FORMAT=<ID=NR,Number=A,Type=Integer/' \
+        | sed 's/##FORMAT=<ID=NV,Number=\\.,Type=Integer/##FORMAT=<ID=NV,Number=A,Type=Integer/' \
+        > tmp.fixed.vcf && mv tmp.fixed.vcf ${sample}.${interval_id}.platypus.vcf
     bgzip ${sample}.${interval_id}.platypus.vcf
     tabix ${sample}.${interval_id}.platypus.vcf.gz
     """
