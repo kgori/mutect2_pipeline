@@ -56,3 +56,25 @@ process makeReferenceDict {
       -O ${refBase}.dict
     """
 }
+
+process makeCopyNumberIntervals {
+    input:
+    path(reference)
+    path(referenceFai)
+    path(referenceDict)
+
+    output:
+    path("*.interval_list")
+
+    publishDir "${params.outdir}/Intervals", mode: 'copy'
+    
+    script:
+    def refBase = reference.getName().replaceFirst(/\.[^.]+$/, '')
+    """
+    gatk PreprocessIntervals \
+      --reference ${reference} \
+      --bin-length 1000 \
+      --padding 0 \
+      -O ${refBase}.interval_list
+    """
+}

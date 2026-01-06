@@ -23,6 +23,7 @@ include { makeBamToSampleNameMap }                         from "./preprocessSam
 include { indexReference }                                 from "./preprocessReference.nf"
 include { splitIntervals }                                 from "./preprocessReference.nf"
 include { makeReferenceDict }                              from "./preprocessReference.nf"
+include { makeCopyNumberIntervals }                        from "./preprocessReference.nf"
 include { runMutectOnNormal }                              from "./initialVariantCalling.nf"
 include { runMutectOnTumour }                              from "./initialVariantCalling.nf"
 include { runHaplotypeCallerOnNormal }                     from "./initialVariantCalling.nf"
@@ -33,6 +34,7 @@ include { concatMutectVcfParts as concatMutectNormal }     from "./vcfConcatenat
 include { concatVcfParts as concatGvcfs }                  from "./vcfConcatenator.nf"
 include { concatVcfParts as concatPlatypus }               from "./vcfConcatenator.nf"
 include { concatVcfParts as concatFreeBayes }              from "./vcfConcatenator.nf"
+include { collectReadCounts }                              from "./copynumberCalling.nf"
 
 process realign {
     input:
@@ -64,6 +66,7 @@ workflow {
     ref_ch = Channel.fromPath(params.reference, checkIfExists: true)
     fai_ch = indexReference(ref_ch)
     dict_ch = makeReferenceDict(ref_ch)
+    bins_ch = makeCopyNumberIntervals(ref_ch, fai_ch, dict_ch)
     ref_files = ref_ch.merge(fai_ch).merge(dict_ch)
 
     // Chop into intervals for scattering-gathering
@@ -235,4 +238,11 @@ workflow {
         .map { fa, fai, dict, sample, label, vcfs, tbis ->
             tuple(sample, label, [fa, fai, dict], vcfs, tbis) }
     concatFreeBayes(grouped_freebayes_with_ref_ch)
+
+    // Collect counts for copy number analysis
+    // TODO: implement copy number counting step
+    copy_number_input_ch = ref_files.combine(normals.mix(tumours)).combine(bins_ch)
+        .map { fa, fai, dict, sample, bam, bins ->
+            tuple([fa, fai, dict], sample, bam, bins) }
+    read_counts = collectReadCounts(copy_number_input_ch)
 }
