@@ -5,5 +5,6 @@ nextflow run main.nf \
          --normals /lustre/scratch125/casm/staging/team267_murchison/kg8/20250704_Mutect2/bams/normals \
          --tumours /lustre/scratch125/casm/staging/team267_murchison/kg8/20250704_Mutect2/bams/tumours \
          --outdir /lustre/scratch125/casm/staging/team267_murchison/kg8/20250704_Mutect2/results_16_samples_20250930 \
-         --numIntervals 32 \
+         --fineSplitNumIntervals 32 \
+         --coarseSplitNumIntervals 8 \
          -resume

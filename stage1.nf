@@ -122,7 +122,7 @@ workflow {
             .map { samplename, bam, ref_label, bwa_index_files ->
                 tuple("tumour", samplename, bwa_index_files, bam) }
 
-        realign_ch = normals_realign_ch.concat(tumours_realign_ch)
+        realign_ch = normals_realign_ch.mix(tumours_realign_ch)
 
         realigned_ch = realign(realign_ch)
 
