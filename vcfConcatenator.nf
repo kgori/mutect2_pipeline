@@ -38,3 +38,28 @@ process concatVcfParts {
     bcftools index -t "${sample}.${label}.combined.vcf.gz"
     """
 }
+
+process concatGvcfParts {
+    input:
+    tuple val(sample), val(label), path(reference), path(vcfs), path(tbis)
+
+    output:
+    path("${sample}.${label}.combined.g.vcf.gz"), emit: vcf
+    path("${sample}.${label}.combined.g.vcf.gz.tbi"), emit: tbi
+
+    publishDir "${params.outdir}/CombinedCalls/${label}", mode: 'copy'
+
+    script:
+    """
+    bcftools concat -a -D *.g.vcf.gz \
+        -Oz -o "${sample}.${label}.intermediate.g.vcf.gz"
+    bcftools index -t "${sample}.${label}.intermediate.g.vcf.gz"
+
+    gatk ReblockGVCFs \
+        --reference ${reference[0]} \
+        --input "${sample}.${label}.intermediate.g.vcf.gz" \
+        --output "${sample}.${label}.combined.g.vcf.gz"
+
+    rm "${sample}.${label}.intermediate.g.vcf.gz"*
+    """
+}

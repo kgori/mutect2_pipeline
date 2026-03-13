@@ -15,7 +15,7 @@ process runMutectOnNormal {
         path("${sample}.*.normal.mutect2_panel_calls.vcf.gz.tbi"),
         path("${sample}.*.normal.mutect2_panel_calls.vcf.gz.stats")
 
-    publishDir "${params.outdir}/InitialCalls/Mutect/Normal", mode: 'copy'
+    // publishDir "${params.outdir}/InitialCalls/Mutect/Normal", mode: 'copy'
     
     script:
     intervalNumberMatch = interval.getName() =~ /^(\d+)/
@@ -50,7 +50,7 @@ process runMutectOnTumour {
         path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz.tbi"),
         path("${sample}.*.tumour.mutect2_candidate_discovery_calls.vcf.gz.stats")
 
-    publishDir "${params.outdir}/InitialCalls/Mutect/Tumour", mode: 'copy'
+    // publishDir "${params.outdir}/InitialCalls/Mutect/Tumour", mode: 'copy'
     
     script:
     intervalNumberMatch = interval.getName() =~ /^(\d+)/
@@ -84,10 +84,12 @@ process runHaplotypeCallerOnNormal {
         path("${sample}.${interval_id}.haplotypecaller.g.vcf.gz"),
         path("${sample}.${interval_id}.haplotypecaller.g.vcf.gz.tbi")
 
-    publishDir "${params.outdir}/InitialCalls/HaplotypeCaller", mode: 'copy'
+    // publishDir "${params.outdir}/InitialCalls/HaplotypeCaller", mode: 'copy'
 
     script:
     """
+    # Run HaplotypeCaller, then immediately reblock the GVCF to save space
+    # Delete the intermediate
     gatk HaplotypeCaller \
       --reference ${reference[0]} \
       --input ${normal_bam[0]} \
@@ -95,7 +97,14 @@ process runHaplotypeCallerOnNormal {
       --interval-padding 150 \
       --native-pair-hmm-threads ${task.cpus} \
       --emit-ref-confidence GVCF \
-        --output ${sample}.${interval_id}.haplotypecaller.g.vcf.gz
+      --output ${sample}.${interval_id}.intermediate.g.vcf.gz
+
+    gatk ReblockGVCFs \
+      --reference ${reference[0]} \
+      --input ${sample}.${interval_id}.intermediate.g.vcf.gz \
+      --output ${sample}.${interval_id}.haplotypecaller.g.vcf.gz
+
+    rm ${sample}.${interval_id}.intermediate.g.vcf.gz*
     """
 }
 
@@ -116,7 +125,7 @@ process runPlatypus {
         path("${sample}.${interval_id}.platypus.vcf.gz"),
         path("${sample}.${interval_id}.platypus.vcf.gz.tbi")
 
-    publishDir "${params.outdir}/InitialCalls/Platypus", mode: 'copy'
+    // publishDir "${params.outdir}/InitialCalls/Platypus", mode: 'copy'
 
     script:
     """
@@ -155,7 +164,7 @@ process runFreeBayes {
         path("${sample}.${interval_id}.freebayes.vcf.gz"),
         path("${sample}.${interval_id}.freebayes.vcf.gz.tbi")
 
-    publishDir "${params.outdir}/InitialCalls/FreeBayes", mode: 'copy'
+    // publishDir "${params.outdir}/InitialCalls/FreeBayes", mode: 'copy'
 
     script:
     """

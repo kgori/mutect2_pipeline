@@ -31,7 +31,7 @@ include { runPlatypus }                                    from "./initialVarian
 include { runFreeBayes }                                   from "./initialVariantCalling.nf"
 include { concatMutectVcfParts as concatMutectTumour }     from "./vcfConcatenator.nf"
 include { concatMutectVcfParts as concatMutectNormal }     from "./vcfConcatenator.nf"
-include { concatVcfParts as concatGvcfs }                  from "./vcfConcatenator.nf"
+include { concatGvcfParts }                                from "./vcfConcatenator.nf"
 include { concatVcfParts as concatPlatypus }               from "./vcfConcatenator.nf"
 include { concatVcfParts as concatFreeBayes }              from "./vcfConcatenator.nf"
 include { collectReadCounts }                              from "./copynumberCalling.nf"
@@ -213,7 +213,7 @@ workflow {
     grouped_haplotypecaller_with_ref_ch = ref_files.combine(grouped_haplotypecaller_ch)
         .map { fa, fai, dict, sample, label, vcfs, tbis ->
             tuple(sample, label, [fa, fai, dict], vcfs, tbis) }
-    concatGvcfs(grouped_haplotypecaller_with_ref_ch)
+    concatGvcfParts(grouped_haplotypecaller_with_ref_ch)
 
     grouped_platypus_ch = platypus_calls_ch
         .map { it -> tuple(it[0], it[1], it[2]) }
