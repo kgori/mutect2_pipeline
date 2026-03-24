@@ -1,3 +1,22 @@
+process simpleSplitIntervals {
+    input:
+    path(reference)
+    val(numIntervals)
+
+    output:
+    path("SimpleIntervals/*.interval_list")
+
+    publishDir "${params.outdir}/Intervals", mode: 'copy'
+
+    script:
+    """
+    gatk SplitIntervals \
+        --reference "${reference[0]}" \
+        --scatter-count $numIntervals \
+        --output SimpleIntervals
+    """
+}
+
 process splitIntervals {
     input:
     path(reference)

@@ -240,7 +240,6 @@ workflow {
     concatFreeBayes(grouped_freebayes_with_ref_ch)
 
     // Collect counts for copy number analysis
-    // TODO: implement copy number counting step
     copy_number_input_ch = ref_files.combine(normals.mix(tumours)).combine(bins_ch)
         .map { fa, fai, dict, sample, bam, bins ->
             tuple([fa, fai, dict], sample, bam, bins) }
