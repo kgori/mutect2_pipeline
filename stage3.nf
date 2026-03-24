@@ -3,7 +3,7 @@ nextflow.enable.dsl=2
 params.reference    = "genome.fa"
 params.normals      = "normals_folder"
 params.tumours      = "tumours_folder"
-params.matchlist    = "matchlist.csv"
+params.samplesheet  = "samplesheet.csv"
 params.outdir       = "results"
 params.numIntervals = 8
 params.intervals    = "$projectDir/NO_FILE"
@@ -152,6 +152,73 @@ workflow {
     //             def intervalNumber = intervalNumberMatch ? intervalNumberMatch[0][1] : 99999
     //         return tuple(intervalNumber, interval) }
 
+    // Load data
+    // Parse samplesheet and resolve file paths
+    inputs = Channel
+        .fromPath(params.samplesheet)
+        .splitCsv(header: false)
+        .filter { row -> row.any { it?.trim() } }           // skip empty rows
+        .map { row ->
+            def sample   = row[0]?.trim()
+            def t_name   = row[1]?.trim()
+            def n_name   = row[2]?.trim()
+
+            def tumour = null
+            def normal = null
+
+            if (t_name) {
+                def cram = file(params.tumours).resolve(t_name)
+                def crai
+                if (cram.name.endsWith("cram")) crai = file("${cram}.crai")
+                else if (cram.name.endsWith("bam")) crai = file("${cram}.bai")
+                else error "Alignment files must end with .bam or .cram: ${cram}"
+                    
+                if (!cram.exists()) error "Tumour CRAM not found for ${sample}: ${cram}"
+                if (!crai.exists()) error "Tumour CRAI not found for ${sample}: ${crai}"
+                tumour = [cram, crai]
+            }
+
+            if (n_name) {
+                def cram = file(params.normals).resolve(n_name)
+                def crai
+                if (cram.name.endsWith("cram")) crai = file("${cram}.crai")
+                else if (cram.name.endsWith("bam")) crai = file("${cram}.bai")
+                else error "Alignment files must end with .bam or .cram: ${cram}"
+
+                if (!cram.exists()) error "Normal CRAM not found for ${sample}: ${cram}"
+                if (!crai.exists()) error "Normal CRAI not found for ${sample}: ${crai}"
+                normal = [cram, crai]
+            }
+
+            tuple(sample, tumour, normal)
+        }
+        .groupTuple(by: 0)
+        .map { sample, tumours, normals ->
+            if (tumours.size() > 1) error "Duplicate sample name in samplesheet: '${sample}'"
+            tuple(sample, tumours[0], normals[0])
+        }
+        .branch {
+            paired:      it[1] != null && it[2] != null
+            tumour_only: it[1] != null
+            normal_only: it[2] != null
+        }
+
+    // Three named emissions:
+    // inputs.paired      → [sample, [t_cram, t_crai], [n_cram, n_crai]]
+    // inputs.tumour_only → [sample, [t_cram, t_crai], null]
+    // inputs.normal_only → [sample, null,              [n_cram, n_crai]]
+
+    inputs.paired
+        .set { paired }
+    inputs.tumour_only
+        .map { sample, tumour, _ -> tuple(sample, tumour) }
+        .set { tumour_only }
+    inputs.normal_only
+        .map { sample, _, normal -> tuple(sample, normal) }
+        .set { normal_only }
+    paired | view()
+    tumour_only | view()
+    normal_only | view()
     // Load normal bams
     // bam_bai_inputs   = Channel.fromFilePairs("${params.normals}/*.bam{,.bai}")
     // bam_csi_inputs   = Channel.fromFilePairs("${params.normals}/*.bam{,.csi}")
