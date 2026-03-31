@@ -17,14 +17,14 @@ def remove_duplicate_filepair_keys(primary_ch, secondary_ch) {
         map { it -> tuple(it[0], it[1][0]) }
 }
 
-def make_db_ch(filepairs_ch, ivls_ch, ref_files) {
+def make_db_ch(filepairs_ch, ivls, ref_files) {
     vcf_files = filepairs_ch
         .map { _id, files -> tuple("vcf", files.find { it.name.endsWith(".vcf.gz") }) }
         .groupTuple()
     index_files = filepairs_ch
         .map { _id, files -> tuple("tbi", files.find { it.name.endsWith(".vcf.gz.tbi") }) }
         .groupTuple()
-    return ref_files.combine(vcf_files.combine(index_files).combine(ivls_ch))
+    return ref_files.combine(vcf_files.combine(index_files).combine(ivls))
         .map { fa, fai, dict, _vcf, vcfs, _tbi, tbis, interval_id, interval ->
             tuple(interval_id, [fa, fai, dict], vcfs, tbis, interval) }
 }
@@ -60,8 +60,8 @@ workflow {
     ref_files = ref_ch.merge(fai_ch).merge(dict_ch)
 
     // Construct intervals
-    ivls = simpleSplitIntervals(ref_files, params.intervals)
-    ivls_ch = ivls.flatten()
+    split_intervals = simpleSplitIntervals(ref_files, params.intervals)
+    ivls = split_intervals.flatten()
         .map { interval ->
             def intervalNumberMatch = interval.getName() =~ /^(\d+)/
                 def intervalNumber = intervalNumberMatch ? intervalNumberMatch[0][1] : 99999
@@ -75,9 +75,9 @@ workflow {
     som_filepairs = Channel.fromFilePairs("${params.tumours}/*.{vcf.gz,vcf.gz.tbi}", checkIfExists: true)
 
     // Construct appropriate nextflow channels for stage 2
-    gvcf_ch = make_db_ch(gvcf_filepairs, ivls_ch, ref_files)
-    pon_ch = make_db_ch(pon_filepairs, ivls_ch, ref_files)
-    som_ch = make_db_ch(som_filepairs, ivls_ch, ref_files)
+    gvcf_ch = make_db_ch(gvcf_filepairs, ivls, ref_files)
+    pon_ch = make_db_ch(pon_filepairs, ivls, ref_files)
+    som_ch = make_db_ch(som_filepairs, ivls, ref_files)
 
     // Run on each interval
     genotyped_gvcfs = genotypeGvcfIntervals(gvcf_ch)

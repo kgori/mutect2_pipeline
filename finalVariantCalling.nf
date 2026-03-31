@@ -1,10 +1,84 @@
+process callMatchedSomaticVariants {
+    cpus 8
+    memory { 10.GB + 4.GB * (task.attempt - 1) }
+    errorStrategy 'retry'
+    maxRetries 1
+    time '4h'
+    queue 'normal'
+    executor 'lsf'
+
+    input:
+    tuple val(interval_id),
+        path(reference),
+        val(sample),
+        path(tumour_bam),
+        path(normal_bam),
+        path(intervals),
+        path(germline_resource),
+        path(panel_of_normals),
+        path(candidates)
+
+    output:
+    tuple val(sample),
+        path("${interval_id}.${sample}.unfiltered.vcf.gz"),
+        path("${interval_id}.${sample}.unfiltered.vcf.gz.tbi"),
+        path("${interval_id}.${sample}.unfiltered.vcf.gz.stats"),
+        val(interval_id),
+        path(intervals),
+        emit: vcfs
+    tuple val(sample), path("*.f1r2.tar.gz*"), emit: f1r2s
+    tuple val(sample), path("${interval_id}.${sample}.missing_candidates.vcf.gz"), emit: missing_candidates
+
+    publishDir "${params.outdir}/SecondTumourCalls", mode: 'copy', pattern: '*gz*'
+    script:
+    """
+    # Restrict candidate set to the current interval
+    bcftools view -R <(grep -v "^@" ${intervals}) \
+        -Oz -o candidates.subset.vcf.gz -W=tbi ${candidates[0]}
+
+    tumour_name=\$(get_sample_name_from_bam.sh ${tumour_bam[0]})
+    normal_name=\$(get_sample_name_from_bam.sh ${normal_bam[0]})
+    if [ "\$tumour_name" == "\$normal_name" ]; then
+        echo "Error: tumour and normal BAM files appear to have the same sample name. Please check your input files."
+        exit 1
+    fi
+
+    # Call somatic variants. Use the candidates file as the intervals to reduce the
+    # amount of new calls made by mutect
+    gatk Mutect2 \
+        --reference ${reference[0]} \
+        --input ${tumour_bam[0]} \
+        --input ${normal_bam[0]} \
+        --normal-sample \$normal_name \
+        --tumor-sample \$tumour_name \
+        --germline-resource ${germline_resource[0]} \
+        --panel-of-normals ${panel_of_normals[0]} \
+        --alleles candidates.subset.vcf.gz \
+        --f1r2-tar-gz ${interval_id}.${sample}.f1r2.tar.gz \
+        --intervals ${intervals} \
+        --native-pair-hmm-threads ${task.cpus} \
+        --max-mnp-distance 0 \
+        --assembly-region-padding 300 \
+        --force-call-filtered-alleles \
+        --genotype-germline-sites \
+        --genotype-pon-sites \
+        --output ${interval_id}.${sample}.unfiltered.vcf.gz
+
+    # Any missing candidates?
+    split_mutect2_multiallelics.py ${interval_id}.${sample}.unfiltered.vcf.gz \
+        | bcftools norm -f ${reference[0]} -Oz -o ${interval_id}.${sample}.unfiltered.norm.vcf.gz -W=tbi
+    bcftools isec -C -w1 -Oz -o ${interval_id}.${sample}.missing_candidates.vcf.gz -W=tbi \
+        candidates.subset.vcf.gz ${interval_id}.${sample}.unfiltered.norm.vcf.gz
+    """
+}
+
 process callSomaticVariants {
     cpus 4
     memory { 12.GB + 4.GB * (task.attempt - 1) }
     errorStrategy 'retry'
     maxRetries 3
-    time '12h'
-    queue 'normal'
+    time '48h'
+    queue 'long'
     executor 'lsf'
 
     input:
@@ -44,7 +118,7 @@ process callSomaticVariants {
         --panel-of-normals ${panel_of_normals[0]} \
         --alleles candidates.subset.vcf.gz \
         --f1r2-tar-gz ${interval_id}.${sample}.f1r2.tar.gz \
-        --intervals candidates.subset.vcf.gz \
+        --intervals ${intervals} \
         --native-pair-hmm-threads ${task.cpus} \
         --max-mnp-distance 0 \
         --assembly-region-padding 300 \
@@ -66,8 +140,8 @@ process recallGermlineVariants {
     memory { 12.GB + 4.GB * (task.attempt - 1) }
     errorStrategy 'retry'
     maxRetries 3
-    time '12h'
-    queue 'normal'
+    time '48h'
+    queue 'long'
     executor 'lsf'
 
     input:
@@ -90,6 +164,7 @@ process recallGermlineVariants {
 
     publishDir "${params.outdir}/SecondHaplotypeCallerCalls", mode: 'copy', pattern: '*gz*'
     script:
+    def sample = bam[0].getBaseName().replaceFirst(/\\.bam$/, "").replaceFirst(/\\.cram$/, "")
     """
     # Restrict candidate set to the current interval
     gatk SelectVariants \
@@ -106,7 +181,7 @@ process recallGermlineVariants {
         --population-callset ${germline_resource[0]} \
         --force-call-filtered-alleles \
         --output ${interval_id}.${sample}.haplotypeCaller.vcf.gz \
-        --intervals candidates.subset.vcf.gz \
+        --intervals ${intervals} \
         --native-pair-hmm-threads ${task.cpus} \
         --max-mnp-distance 0 \
         --assembly-region-padding 300
