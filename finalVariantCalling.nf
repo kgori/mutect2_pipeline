@@ -47,7 +47,7 @@ process callSomaticVariants {
         --intervals candidates.subset.vcf.gz \
         --native-pair-hmm-threads ${task.cpus} \
         --max-mnp-distance 0 \
-        --assembly-region-padding 300 \
+        --assembly-region-padding 100 \
         --force-call-filtered-alleles \
         --genotype-germline-sites \
         --genotype-pon-sites \
